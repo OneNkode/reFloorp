@@ -79,6 +79,7 @@ function BlockModal({
       <div className="modal-box">
         <h3 className="font-bold text-lg">
           {t("topSites.blockTitle", {
+            title: site.title,
             defaultValue: `Block "${site.title}"?`,
           })}
         </h3>
