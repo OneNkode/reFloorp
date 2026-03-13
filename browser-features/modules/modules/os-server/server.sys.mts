@@ -123,7 +123,6 @@ class LocalHttpServer implements nsIServerSocketListener {
           e.result === Cr.NS_ERROR_CONNECTION_REFUSED ||
           e.result === Cr.NS_ERROR_SOCKET_ADDRESS_IN_USE ||
           e.result === Cr.NS_ERROR_SOCKET_ADDRESS_NOT_SUPPORTED ||
-          e.result === Cr.NS_ERROR_SOCKET_ADDRESS_FAMILY_NOT_SUPPORTED ||
           e.result === Cr.NS_ERROR_NET_RESET ||
           e.result === 0x804B000D; // NS_ERROR_CONNECTION_REFUSED raw value
 

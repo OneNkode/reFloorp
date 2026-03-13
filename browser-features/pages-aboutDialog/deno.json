@@ -1,5 +1,6 @@
 {
   "name": "@nora/pages-aboutdialog",
+  "exports": "./dist/main.js",
   "imports": {
     "@deno/vite-plugin": "npm:@deno/vite-plugin@^1.0.5",
     "preact": "npm:preact@^10.25.4",
