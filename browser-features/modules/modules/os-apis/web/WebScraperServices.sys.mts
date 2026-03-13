@@ -12,6 +12,8 @@
  * - Clean up resources when instances are no longer needed
  */
 
+import type { WaitForElementState } from "../../os-server/shared/types.ts";
+
 const { E10SUtils } = ChromeUtils.importESModule(
   "resource://gre/modules/E10SUtils.sys.mjs",
 );
@@ -38,7 +40,7 @@ const FRAME = new HiddenFrame();
  */
 const GlobalHTTPTracker = {
   activeRequests: new Map<number, Set<nsIRequest>>(),
-  
+
   init() {
     try {
       Services.obs.addObserver(this, "http-on-opening-request");
@@ -81,7 +83,7 @@ const GlobalHTTPTracker = {
 
   getActiveCount(bcid: number): number {
     return this.activeRequests.get(bcid)?.size || 0;
-  }
+  },
 };
 
 GlobalHTTPTracker.init();
@@ -93,8 +95,6 @@ GlobalHTTPTracker.init();
  * navigating browser instances without visible UI elements.
  */
 class webScraper {
-
-
   // Map to store browser instances with their unique IDs
   private _browserInstances: Map<string, XULBrowserElement> = new Map();
   private _instanceId!: string;
@@ -584,11 +584,10 @@ class webScraper {
    * @param instanceId - The unique identifier of the browser instance
    * @param selector - CSS selector to find the target element
    * @param timeout - Maximum time to wait in milliseconds (default: 5000)
+   * @param state - The state to wait for (attached, visible, hidden, detached)
    * @returns Promise<boolean> - True if element was found, false if timeout reached
    * @throws Error - If the browser instance is not found
    */
-import type { WaitForElementState } from "../../../modules/os-server/shared/types.js";
-
   public async waitForElement(
     instanceId: string,
     selector: string,
@@ -1337,7 +1336,7 @@ import type { WaitForElementState } from "../../../modules/os-server/shared/type
 
           // Verify cookie was actually stored
           const storedDomain = cookie.domain ?? uri.host;
-          
+
           // Check if cookie actually exists after add
           let cookieActuallyExists = false;
           try {
@@ -1350,7 +1349,7 @@ import type { WaitForElementState } from "../../../modules/os-server/shared/type
           } catch {
             // cookieExists check failed, assume cookie not stored
           }
-          
+
           if (cookieActuallyExists) {
             return true;
           } else {
@@ -1393,7 +1392,7 @@ import type { WaitForElementState } from "../../../modules/os-server/shared/type
           }
 
           const cookieString = parts.filter(Boolean).join("; ");
-          
+
           const fallback = await actor
             .sendQuery("WebScraper:SetCookieString", {
               cookieString: cookieString,
@@ -1442,8 +1441,6 @@ import type { WaitForElementState } from "../../../modules/os-server/shared/type
     return Promise.resolve(true);
   }
 
-
-
   /**
    * Waits for network to become idle (no pending requests)
    */
@@ -1469,7 +1466,9 @@ import type { WaitForElementState } from "../../../modules/os-server/shared/type
         startTime: Date.now(),
       };
 
-      console.log(`[WebScraper] Waiting for network idle on BCID: ${bcid}, Timeout: ${timeout}ms`);
+      console.log(
+        `[WebScraper] Waiting for network idle on BCID: ${bcid}, Timeout: ${timeout}ms`,
+      );
 
       const resetIdleTimer = () => {
         if (state.idleTimer) {
@@ -1478,8 +1477,10 @@ import type { WaitForElementState } from "../../../modules/os-server/shared/type
         state.idleTimer = setTimeout(() => {
           const activeCount = GlobalHTTPTracker.getActiveCount(bcid);
           const elapsed = Date.now() - state.startTime;
-          console.log(`[WebScraper] Idle Check - Active Count: ${activeCount}, Elapsed: ${elapsed}ms`);
-          
+          console.log(
+            `[WebScraper] Idle Check - Active Count: ${activeCount}, Elapsed: ${elapsed}ms`,
+          );
+
           if (!state.resolved && activeCount === 0) {
             console.log(`[WebScraper] Network reached idle for BCID ${bcid}.`);
             state.resolved = true;
@@ -1488,9 +1489,9 @@ import type { WaitForElementState } from "../../../modules/os-server/shared/type
           } else if (activeCount > 0) {
             // Still active, check again later
             // Exponential backoff or just plain reset? Keep it simple for now.
-             if (!state.resolved) {
-                 resetIdleTimer();
-             }
+            if (!state.resolved) {
+              resetIdleTimer();
+            }
           }
         }, idleThreshold);
       };
@@ -1515,7 +1516,9 @@ import type { WaitForElementState } from "../../../modules/os-server/shared/type
             // deno-lint-ignore no-explicit-any
             const channel = (subject as any).QueryInterface(Ci.nsIHttpChannel);
             if (channel.loadInfo?.browsingContextID === bcid) {
-               console.log(`[WebScraper] Observed ${topic} for BCID ${bcid} - URI: ${channel.URI?.spec}`);
+              console.log(
+                `[WebScraper] Observed ${topic} for BCID ${bcid} - URI: ${channel.URI?.spec}`,
+              );
               if (topic === "http-on-opening-request") {
                 if (state.idleTimer) {
                   clearTimeout(state.idleTimer);
@@ -1528,7 +1531,7 @@ import type { WaitForElementState } from "../../../modules/os-server/shared/type
           } catch {
             // Ignore
           }
-        }
+        },
       };
 
       try {
@@ -1546,7 +1549,9 @@ import type { WaitForElementState } from "../../../modules/os-server/shared/type
         if (!state.resolved) {
           console.log("[WebScraper] waitForNetworkIdle timed out.");
           const finalCount = GlobalHTTPTracker.getActiveCount(bcid);
-          console.log(`[WebScraper] Final Active Count at timeout: ${finalCount}`);
+          console.log(
+            `[WebScraper] Final Active Count at timeout: ${finalCount}`,
+          );
           state.resolved = true;
           cleanup();
           resolve(false);
@@ -1655,8 +1660,6 @@ import type { WaitForElementState } from "../../../modules/os-server/shared/type
     await this._delayForUser(1000);
     return result;
   }
-
-
 }
 
 // Export a singleton instance of the WebScraper service

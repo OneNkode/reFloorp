@@ -106,8 +106,37 @@ class LocalHttpServer implements nsIServerSocketListener {
     const server = Cc["@mozilla.org/network/server-socket;1"].createInstance(
       Ci.nsIServerSocket,
     );
-    // loopbackOnly=true, backlog=-1 default
-    server.init(port, /* loopbackOnly */ true, -1);
+    try {
+      // loopbackOnly=true, backlog=10 (max pending connections)
+      // Using explicit backlog value instead of -1 which can cause NS_ERROR_CONNECTION_REFUSED on some systems
+      server.init(port, /* loopbackOnly */ true, 10);
+    } catch (e: unknown) {
+      // Log all exception details for debugging
+      if (e instanceof Ci.nsIException) {
+        err(`Failed to start server on port ${port}`);
+        err(`Error result: 0x${e.result.toString(16)} (${e.result})`);
+        err(`Error message: ${e.message}`);
+        err(`Error name: ${e.name}`);
+
+        // Known error codes for port issues
+        const isPortError =
+          e.result === Cr.NS_ERROR_CONNECTION_REFUSED ||
+          e.result === Cr.NS_ERROR_SOCKET_ADDRESS_IN_USE ||
+          e.result === Cr.NS_ERROR_SOCKET_ADDRESS_NOT_SUPPORTED ||
+          e.result === Cr.NS_ERROR_SOCKET_ADDRESS_FAMILY_NOT_SUPPORTED ||
+          e.result === Cr.NS_ERROR_NET_RESET ||
+          e.result === 0x804B000D; // NS_ERROR_CONNECTION_REFUSED raw value
+
+        if (isPortError) {
+          err(`Please try: 1) Change 'floorp.os.server.port' in about:config to another port (e.g., 58262), 2) Restart Floorp, or 3) Check your firewall settings`);
+          return;
+        }
+      }
+      // Log unknown errors
+      err(`Unexpected error starting server: ${e}`);
+      // Re-throw unexpected errors
+      throw e;
+    }
     server.asyncListen(this);
     this._server = server;
     log(`listening on 127.0.0.1:${server.port}`);

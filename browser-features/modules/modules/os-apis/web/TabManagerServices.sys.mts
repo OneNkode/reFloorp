@@ -6,6 +6,8 @@
  * TabManagerService - A service for managing and interacting with browser tabs.
  */
 
+import type { WaitForElementState } from "../../os-server/shared/types.ts";
+
 const { E10SUtils } = ChromeUtils.importESModule(
   "resource://gre/modules/E10SUtils.sys.mjs",
 );
@@ -777,8 +779,6 @@ class TabManager {
     await this._delayForUser(3500);
     return result;
   }
-
-import type { WaitForElementState } from "../../../modules/os-server/shared/types.js";
 
   public waitForElement(
     instanceId: string,
