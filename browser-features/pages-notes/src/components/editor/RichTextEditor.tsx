@@ -31,12 +31,20 @@ const EditorContent = ({ onChange, initialContent, noteId }: RichTextEditorProps
     const [editor] = useLexicalComposerContext();
     const lastNoteIdRef = useRef<string | undefined>(undefined);
     const isInternalChange = useRef(false);
+    const isInitialized = useRef(false);
 
     // Update content when noteId changes (switching between notes)
+    // Also runs on mount when first initialized
     useEffect(() => {
-        if (noteId !== lastNoteIdRef.current) {
+        // Only update when noteId changes or on first mount
+        // We don't check initialContent here because it changes on every edit
+        // and we don't want to reset editor state during normal editing
+        const shouldUpdate = noteId !== lastNoteIdRef.current || !isInitialized.current;
+
+        if (shouldUpdate) {
             lastNoteIdRef.current = noteId;
             isInternalChange.current = true;
+            isInitialized.current = true;
             
             if (initialContent) {
                 try {

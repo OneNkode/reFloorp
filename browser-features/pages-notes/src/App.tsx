@@ -76,10 +76,19 @@ function App() {
   }, [saveNotesToStorage]);
 
   useEffect(() => {
-    if (!isLoading && notes.length > 0) {
+    if (!isLoading) {
       debouncedSave(notes);
     }
   }, [notes, isLoading, debouncedSave]);
+
+  // Cleanup function to clear pending save on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const createNewNote = () => {
     const newNote: Note = {
@@ -173,7 +182,8 @@ function App() {
                 onDeleteNote={deleteNote}
                 onReorderNotes={(newNotes) => {
                   setNotes(newNotes);
-                  saveNotesToStorage();
+                  // Note: Don't need to call saveNotesToStorage here since
+                  // the debounced save effect will handle it automatically
                 }}
                 isReorderMode={isReorderMode}
               />

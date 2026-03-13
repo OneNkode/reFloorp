@@ -288,6 +288,7 @@ export const CWS_I18N_KEYS = {
     success: "chromeWebStore.button.success",
     error: "chromeWebStore.button.error",
     installed: "chromeWebStore.button.installed",
+    close: "chromeWebStore.button.close",
   },
   // Error messages
   error: {

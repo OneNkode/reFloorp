@@ -61,6 +61,7 @@ const DEFAULT_TRANSLATIONS: Record<string, string> = {
   [CWS_I18N_KEYS.button.success]: "Added!",
   [CWS_I18N_KEYS.button.error]: "Error occurred",
   [CWS_I18N_KEYS.button.installed]: "Installed",
+  [CWS_I18N_KEYS.button.close]: "Close",
   [CWS_I18N_KEYS.error.title]: "Installation Error",
   [CWS_I18N_KEYS.error.compatibilityNote]:
     "This extension may not be compatible with Firefox/Floorp.",
@@ -218,6 +219,7 @@ export class NRChromeWebStoreChild extends JSWindowActorChild {
           CWS_I18N_KEYS.button.success,
           CWS_I18N_KEYS.button.error,
           CWS_I18N_KEYS.button.installed,
+          CWS_I18N_KEYS.button.close,
           CWS_I18N_KEYS.error.title,
           CWS_I18N_KEYS.error.compatibilityNote,
           CWS_I18N_KEYS.error.installFailed,
@@ -1227,6 +1229,9 @@ export class NRChromeWebStoreChild extends JSWindowActorChild {
     const closeBtn = doc.createElement("button");
     closeBtn.style.cssText =
       "background:none;border:none;cursor:pointer;padding:0;color:inherit;opacity:0.7;margin-left:8px";
+    const closeLabel = this.t(CWS_I18N_KEYS.button.close);
+    closeBtn.setAttribute("aria-label", closeLabel);
+    closeBtn.setAttribute("title", closeLabel);
     const closeIcon = this.createSvgElement("0 0 24 24", SVG_PATH_CLOSE);
     closeIcon.setAttribute("width", "16");
     closeIcon.setAttribute("height", "16");
