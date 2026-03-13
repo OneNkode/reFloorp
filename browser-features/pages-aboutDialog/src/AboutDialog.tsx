@@ -1,12 +1,33 @@
-import { h, Fragment } from "preact";
 import { useEffect, useState, useRef, useMemo } from "preact/hooks";
+import { useTranslation } from "react-i18next";
 
 declare const ChromeUtils: any;
 declare const Services: any;
 declare const Ci: any;
 declare const Cc: any;
 declare const openHelpLink: any;
-declare const openFeedbackPage: any;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function openExternalUrl(url: string) {
+  try {
+    const win = Services.wm.getMostRecentWindow("navigator:browser");
+    if (win) {
+      try {
+        win.openUILinkIn(url, "tab", { inBackground: false });
+      } catch {
+        win.gBrowser.addTab(url, {
+          triggeringPrincipal:
+            Services.scriptSecurityManager.getSystemPrincipal(),
+        });
+        win.gBrowser.selectedTab = win.gBrowser.tabs[win.gBrowser.tabs.length - 1];
+      }
+      win.focus();
+    }
+  } catch {
+    // fallback: do nothing if no browser window
+  }
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,37 +47,42 @@ type UpdatePanel =
 
 interface UpdateStatus {
   panel: UpdatePanel;
-  downloadProgress?: string; // e.g. "4.2 MB of 80 MB"
+  downloadProgress?: string;
   availableVersion?: string;
 }
 
 // ─── Update status → human-readable text ──────────────────────────────────────
 
-function updateLabel(status: UpdateStatus): { text: string; busy?: boolean } {
+function updateLabel(
+  status: UpdateStatus,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+): { text: string; busy?: boolean } {
   switch (status.panel) {
     case "checking":
-      return { text: "Checking for updates…", busy: true };
+      return { text: t("aboutDialog.update.checking"), busy: true };
     case "checkFailed":
-      return { text: "Couldn't check for updates. Try again later." };
+      return { text: t("aboutDialog.update.checkFailed") };
     case "upToDate":
-      return { text: "You're up to date." };
+      return { text: t("aboutDialog.update.upToDate") };
     case "downloading":
       return {
-        text: `Downloading update… ${status.downloadProgress ?? ""}`,
+        text: t("aboutDialog.update.downloading", {
+          progress: status.downloadProgress ?? "",
+        }),
         busy: true,
       };
     case "applying":
-      return { text: "Installing update…", busy: true };
+      return { text: t("aboutDialog.update.applying"), busy: true };
     case "readyToRestart":
-      return { text: "Update ready — restart to apply." };
+      return { text: t("aboutDialog.update.readyToRestart") };
     case "restarting":
-      return { text: "Restarting…", busy: true };
+      return { text: t("aboutDialog.update.restarting"), busy: true };
     case "policyDisabled":
-      return { text: "Updates are managed by your organisation." };
+      return { text: t("aboutDialog.update.policyDisabled") };
     case "downloadFailed":
-      return { text: "Download failed. Please try again." };
+      return { text: t("aboutDialog.update.downloadFailed") };
     case "noUpdater":
-      return { text: "Updates are managed externally." };
+      return { text: t("aboutDialog.update.noUpdater") };
     default:
       return { text: "" };
   }
@@ -65,6 +91,8 @@ function updateLabel(status: UpdateStatus): { text: string; busy?: boolean } {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function AboutDialog() {
+  const { t } = useTranslation();
+
   const [distroAbout, setDistroAbout] = useState("");
   const [distroId, setDistroId] = useState("");
   const [version, setVersion] = useState("");
@@ -102,7 +130,6 @@ export function AboutDialog() {
     window.addEventListener("keydown", onKeydown);
 
     try {
-      // Distribution info
       const defaults = Services.prefs.getDefaultBranch(null);
       const dId = defaults.getCharPref("distribution.id", "");
       if (dId) {
@@ -113,13 +140,11 @@ export function AboutDialog() {
           setDistroId(dVersion ? `${dId} — ${dVersion}` : dId);
       }
 
-      // Version string
       const rawVersion = Services.appinfo.version;
       setVersion(AppConstants.MOZ_APP_VERSION_DISPLAY);
       if (/a\d+$/.test(rawVersion)) setIsNightly(true);
       if (AppConstants.IS_ESR) setIsEsr(true);
 
-      // Release notes
       if (
         Services.prefs.getPrefType("app.releaseNotesURL.aboutDialog") !==
         Services.prefs.PREF_INVALID
@@ -130,7 +155,6 @@ export function AboutDialog() {
         if (url !== "about:blank") setReleaseNotesUrl(url);
       }
 
-      // Updater
       if (!AppConstants.MOZ_UPDATER) return;
 
       const { AppUpdater } = ChromeUtils.importESModule(
@@ -199,7 +223,6 @@ export function AboutDialog() {
     return () => window.removeEventListener("keydown", onKeydown);
   }, [AppConstants]);
 
-  // Focus the action button whenever the update panel changes
   useEffect(() => {
     actionButtonRef.current?.focus();
   }, [updateStatus.panel]);
@@ -248,25 +271,38 @@ export function AboutDialog() {
   const renderUpdateSection = () => {
     if (updateStatus.panel === "idle")
       return (
-        <button ref={actionButtonRef} onClick={checkForUpdates}>
-          Check for updates
+        <button
+          ref={actionButtonRef}
+          class="ad-btn ad-btn-primary"
+          onClick={checkForUpdates}
+        >
+          {t("aboutDialog.update.idle")}
         </button>
       );
 
     if (updateStatus.panel === "available")
       return (
-        <button ref={actionButtonRef} onClick={downloadUpdate}>
-          Download update
-          {updateStatus.availableVersion
-            ? ` (${updateStatus.availableVersion})`
-            : ""}
+        <button
+          ref={actionButtonRef}
+          class="ad-btn ad-btn-primary"
+          onClick={downloadUpdate}
+        >
+          {t("aboutDialog.update.available", {
+            version: updateStatus.availableVersion
+              ? ` (${updateStatus.availableVersion})`
+              : "",
+          })}
         </button>
       );
 
     if (updateStatus.panel === "readyToRestart")
       return (
-        <button ref={actionButtonRef} onClick={restartToUpdate}>
-          Restart to apply update
+        <button
+          ref={actionButtonRef}
+          class="ad-btn ad-btn-primary"
+          onClick={restartToUpdate}
+        >
+          {t("aboutDialog.update.restartToApply")}
         </button>
       );
 
@@ -275,302 +311,228 @@ export function AboutDialog() {
       updateStatus.panel === "downloadFailed"
     )
       return (
-        <span
-          style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}
-        >
-          {/* role="alert" announces error messages immediately, without waiting */}
-          <span
-            role="alert"
-            style={{ color: "var(--color-red, #c0392b)", fontSize: "1rem" }}
-          >
-            {updateLabel(updateStatus).text}
+        <div class="ad-error-col">
+          <span role="alert" class="ad-status-err">
+            {updateLabel(updateStatus, t).text}
           </span>
           <button
-            class="outline"
+            ref={actionButtonRef}
+            class="ad-btn ad-btn-ghost"
             onClick={checkForUpdates}
-            style={{ width: "fit-content" }}
           >
-            Try again
+            {t("aboutDialog.update.tryAgain")}
           </button>
-        </span>
+        </div>
       );
 
-    const { text, busy } = updateLabel(updateStatus);
+    const { text, busy } = updateLabel(updateStatus, t);
     if (!text) return null;
     return (
-      <span
-        aria-busy={busy}
-        style={{ color: "var(--muted-color)", fontSize: "1rem" }}
-      >
-        {text}
-      </span>
+      <div class="ad-update-row" aria-busy={busy}>
+        {busy && <div class="ad-spinner" />}
+        <span
+          class={
+            updateStatus.panel === "upToDate"
+              ? "ad-status-ok"
+              : "ad-status-text"
+          }
+        >
+          {text}
+        </span>
+      </div>
     );
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
   const channelBadge = isNightly
-    ? "Nightly"
+    ? t("aboutDialog.channel.nightly")
     : isEsr
-      ? "Extended Support"
+      ? t("aboutDialog.channel.esr")
       : null;
 
   return (
-    // role="dialog" + aria-label tells screen readers what this window is
-    <main
-      role="dialog"
-      aria-label="About Floorp"
-      style={{ height: "100%", display: "flex", flexDirection: "column" }}
-    >
-      <article
-        style={{
-          flex: 1,
-          width: "100%",
-          maxWidth: "860px",
-          margin: "0 auto",
-          padding: "2.5rem",
-          boxSizing: "border-box",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        {/* ── Top: branding + info ── */}
-        <div
-          class="grid"
-          style={{ alignItems: "center", gap: "2.5rem", flex: 1 }}
-        >
-          {/* Logo + name */}
-          <section
-            aria-label="Application branding"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              textAlign: "center",
-              gap: "1.25rem",
-              borderRight: "1px solid var(--muted-border-color)",
-            }}
-          >
-            {/*
-              alt="" because the "Floorp" h1 already names the app.
-              aria-hidden removes the image from the accessibility tree entirely,
-              preventing screen readers from announcing a redundant "image".
-            */}
-            <img
-              src="chrome://branding/content/about-logo@2x.png"
-              width={140}
-              height={140}
-              alt=""
-              aria-hidden="true"
-              style={{ objectFit: "contain" }}
-            />
-            <div>
-              <h1
-                style={{
-                  margin: 0,
-                  fontSize: "2.4rem",
-                  fontWeight: 800,
-                  lineHeight: 1.1,
+    <main class="ad" role="dialog" aria-label={t("aboutDialog.ariaLabel")}>
+      {/* ── Two-column body ── */}
+      <div class="ad-body">
+        {/* ── Left: Brand + Update ── */}
+        <div class="ad-left">
+          <img
+            src="chrome://branding/content/about-logo@2x.png"
+            class="ad-logo"
+            alt=""
+            aria-hidden="true"
+          />
+          <h1 class="ad-name">Floorp</h1>
+          <div class="ad-version">
+            {t("aboutDialog.version")} {version || "…"}
+            {channelBadge && (
+              <span class="ad-badge">{channelBadge}</span>
+            )}
+          </div>
+          <div class="ad-update-area" aria-live="polite" aria-atomic="true">
+            {renderUpdateSection()}
+          </div>
+        </div>
+
+        {/* ── Right: Community + Support ── */}
+        <div class="ad-right">
+          <section>
+            <h2 class="ad-section-title">{t("aboutDialog.community.title")}</h2>
+            <div class="ad-community-row">
+              <a
+                href="#"
+                class="ad-community-item"
+                onClick={(e) => {
+                  e.preventDefault();
+                  openExternalUrl("https://github.com/Floorp-Projects/Floorp");
                 }}
               >
-                Floorp
-              </h1>
-              {channelBadge && (
-                // role="note" keeps it audible but outside the heading hierarchy
-                <p
-                  role="note"
-                  style={{
-                    margin: "0.4rem 0 0",
-                    fontSize: "1.05rem",
-                    opacity: 0.75,
-                  }}
-                >
-                  {channelBadge}
-                </p>
-              )}
+                <span class="ad-community-icon">
+                  <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z" /></svg>
+                </span>
+                GitHub
+              </a>
+              <a
+                href="#"
+                class="ad-community-item"
+                onClick={(e) => {
+                  e.preventDefault();
+                  openExternalUrl("https://discord.gg/floorp");
+                }}
+              >
+                <span class="ad-community-icon">
+                  <svg viewBox="0 0 16 16"><path d="M13.55 3.15A13.3 13.3 0 0010.23 2a9.5 9.5 0 00-.43.87 12.4 12.4 0 00-3.6 0A9.5 9.5 0 005.77 2a13.4 13.4 0 00-3.32 1.15C.35 6.4-.22 9.56.07 12.67A13.5 13.5 0 004.13 15a10 10 0 00.87-1.41 8.7 8.7 0 01-1.37-.66l.33-.26a9.6 9.6 0 008.08 0l.33.26c-.44.26-.9.48-1.37.66.25.5.54.97.87 1.41a13.4 13.4 0 004.06-2.33c.38-3.98-.65-7.1-2.98-10.52zM5.35 10.84c-.87 0-1.58-.82-1.58-1.82s.7-1.82 1.58-1.82 1.6.82 1.58 1.82c0 1-.7 1.82-1.58 1.82zm5.3 0c-.87 0-1.58-.82-1.58-1.82s.7-1.82 1.58-1.82 1.59.82 1.58 1.82c0 1-.7 1.82-1.58 1.82z" /></svg>
+                </span>
+                Discord
+              </a>
+              <a
+                href="#"
+                class="ad-community-item"
+                onClick={(e) => {
+                  e.preventDefault();
+                  openExternalUrl("https://x.com/Floorp_Browser");
+                }}
+              >
+                <span class="ad-community-icon">
+                  <svg viewBox="0 0 16 16"><path d="M12.6.75h2.454l-5.36 6.142L16 15.25h-4.937l-3.867-5.07-4.425 5.07H.316l5.733-6.57L0 .75h5.063l3.495 4.633L12.601.75Zm-.86 13.028h1.36L4.323 2.145H2.865l8.875 11.633Z" /></svg>
+                </span>
+                X
+              </a>
+              <a
+                href="#"
+                class="ad-community-item"
+                onClick={(e) => {
+                  e.preventDefault();
+                  openExternalUrl("https://www.reddit.com/r/floorp/");
+                }}
+              >
+                <span class="ad-community-icon">
+                  <svg viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0Zm-3.828-1.165a1.09 1.09 0 0 0-1.086.025 1.09 1.09 0 0 0-.478.387c-.96-.6-2.12-.95-3.33-.99l.67-3.02 2.16.48a.77.77 0 1 0 .08-.39l-2.38-.53a.2.2 0 0 0-.24.15l-.74 3.34c-1.26.02-2.46.38-3.45 1a1.09 1.09 0 0 0-1.82.82 1.09 1.09 0 0 0 .43.87c-.03.15-.04.3-.04.46 0 2.27 2.65 4.12 5.92 4.12s5.92-1.85 5.92-4.12c0-.16-.01-.31-.04-.46a1.09 1.09 0 0 0 .36-1.14ZM5.35 9a.77.77 0 1 1 0 1.54.77.77 0 0 1 0-1.54Zm4.56 2.87c-.56.56-1.63.6-1.91.6s-1.35-.05-1.91-.6a.2.2 0 0 1 .28-.28c.35.35 1.1.48 1.63.48s1.28-.13 1.63-.48a.2.2 0 0 1 .28.28Zm-.15-1.33a.77.77 0 1 1 0-1.54.77.77 0 0 1 0 1.54Z" /></svg>
+                </span>
+                Reddit
+              </a>
             </div>
           </section>
 
-          {/* Version + updates */}
-          <section
-            aria-label="Version and updates"
-            style={{ display: "flex", flexDirection: "column", gap: "1.75rem" }}
-          >
-            {/* Version block */}
-            <div>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "0.9rem",
-                  opacity: 0.6,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                }}
-              >
-                Version
-              </p>
-              {/*
-                aria-label reads as "Version 147.0.3" as one unit,
-                so screen readers don't just read the bare number.
-              */}
-              <p
-                aria-label={`Version ${version || "unknown"}`}
-                style={{
-                  margin: "0.3rem 0 0",
-                  fontSize: "1.6rem",
-                  fontWeight: 700,
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                {version || "—"}
-              </p>
-              {releaseNotesUrl && (
-                <a
-                  href={releaseNotesUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    fontSize: "1rem",
-                    display: "inline-block",
-                    marginTop: "0.4rem",
-                  }}
-                  data-l10n-id="releaseNotes-link"
-                >
-                  What's new in this version
-                </a>
-              )}
-            </div>
-
-            {/*
-              aria-live="polite" announces status changes after the user
-              finishes what they're currently doing — not mid-sentence.
-              aria-atomic="true" reads the whole message, not just the diff.
-            */}
-            <div
-              aria-live="polite"
-              aria-atomic="true"
-              style={{
-                minHeight: "3.5rem",
-                display: "flex",
-                alignItems: "center",
-              }}
-            >
-              {renderUpdateSection()}
-            </div>
-
-            {/* nav landmark lets keyboard users jump directly here */}
-            <nav
-              aria-label="Support links"
-              style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap" }}
-            >
+          <section>
+            <h2 class="ad-section-title">{t("aboutDialog.help.title")}</h2>
+            <div class="ad-help-row">
               <a
                 href="#"
-                class="secondary"
-                style={{ fontSize: "1.05rem" }}
+                class="ad-help-link"
                 onClick={(e) => {
                   e.preventDefault();
-                  typeof openHelpLink === "function" &&
+                  if (typeof openHelpLink === "function") {
                     openHelpLink("firefox-help");
+                  }
                 }}
                 data-l10n-id="aboutdialog-help-user"
               >
-                Floorp Help
+                {t("aboutDialog.links.help")}
               </a>
               <a
                 href="#"
-                class="secondary"
-                style={{ fontSize: "1.05rem" }}
+                class="ad-help-link"
                 onClick={(e) => {
                   e.preventDefault();
-                  typeof openFeedbackPage === "function" && openFeedbackPage();
+                  openExternalUrl("https://docs.floorp.app/docs/features/");
                 }}
-                data-l10n-id="aboutdialog-submit-feedback"
               >
-                Submit Feedback
+                {t("aboutDialog.help.support")}
               </a>
-            </nav>
+            </div>
+          </section>
+
+          <section>
+            <h2 class="ad-section-title">{t("aboutDialog.sponsor.title")}</h2>
+            <a
+              href="#"
+              class="ad-btn ad-btn-outline"
+              onClick={(e) => {
+                e.preventDefault();
+                openExternalUrl("https://github.com/sponsors/Ryosuke-Asano");
+              }}
+            >
+              {t("aboutDialog.sponsor.button")}
+            </a>
           </section>
         </div>
+      </div>
 
-        {/* ── Footer: legal + distro ── */}
-        <footer
-          aria-label="Legal information"
-          style={{
-            marginTop: "2.5rem",
-            paddingTop: "1.5rem",
-            borderTop: "1px solid var(--muted-border-color)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: "0.75rem",
-              alignItems: "flex-start",
-            }}
-          >
-            <div style={{ fontSize: "0.95rem", opacity: 0.75 }}>
-              {distroAbout && (
-                <p style={{ margin: 0, fontWeight: 600 }}>{distroAbout}</p>
-              )}
-              {distroId && <p style={{ margin: 0 }}>{distroId}</p>}
-            </div>
-            <nav aria-label="Legal links">
-              <ul
-                style={{
-                  listStyle: "none",
-                  display: "flex",
-                  gap: "1.25rem",
-                  margin: 0,
-                  padding: 0,
-                  flexWrap: "wrap",
-                }}
-              >
-                <li>
-                  <a
-                    href="about:license"
-                    data-l10n-id="bottomLinks-license"
-                    class="secondary"
-                    style={{ fontSize: "0.95rem" }}
-                  >
-                    Licensing Information
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="https://www.mozilla.org/about/legal/terms/firefox/"
-                    data-l10n-id="bottom-links-terms"
-                    class="secondary"
-                    style={{ fontSize: "0.95rem" }}
-                  >
-                    Terms of Use
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="https://www.mozilla.org/privacy/firefox/"
-                    data-l10n-id="bottom-links-privacy"
-                    class="secondary"
-                    style={{ fontSize: "0.95rem" }}
-                  >
-                    Privacy Notice
-                  </a>
-                </li>
-              </ul>
-            </nav>
+      {/* ── Footer ── */}
+      <footer class="ad-footer">
+        {(distroAbout || distroId) && (
+          <div class="ad-footer-distro">
+            {distroAbout && <span style={{ fontWeight: 600 }}>{distroAbout}</span>}
+            {distroAbout && distroId && " — "}
+            {distroId && <span>{distroId}</span>}
           </div>
-          <p
-            style={{
-              margin: "1rem 0 0",
-              textAlign: "center",
-              fontSize: "0.85rem",
-              opacity: 0.6,
+        )}
+        {releaseNotesUrl && (
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              openExternalUrl(releaseNotesUrl!);
             }}
-            data-l10n-id="trademarkInfo"
-          />
-        </footer>
-      </article>
+            data-l10n-id="releaseNotes-link"
+          >
+            {t("aboutDialog.links.releaseNotes")}
+          </a>
+        )}
+        <a
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            openExternalUrl("about:license");
+          }}
+          data-l10n-id="bottomLinks-license"
+        >
+          {t("aboutDialog.links.licensing")}
+        </a>
+        <a
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            openExternalUrl("https://www.mozilla.org/privacy/firefox/");
+          }}
+          data-l10n-id="bottom-links-privacy"
+        >
+          {t("aboutDialog.links.privacy")}
+        </a>
+        <a
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            openExternalUrl("https://www.mozilla.org/about/legal/terms/firefox/");
+          }}
+          data-l10n-id="bottom-links-terms"
+        >
+          {t("aboutDialog.links.basedOnFirefox")}
+        </a>
+        <p class="ad-tm" data-l10n-id="trademarkInfo" />
+      </footer>
     </main>
   );
 }

@@ -13,12 +13,17 @@ export default defineConfig({
       jsxImportSource: "preact",
     }),
   ],
+  resolve: {
+    alias: {
+      react: "preact/compat",
+      "react-dom": "preact/compat",
+    },
+  },
   build: {
     outDir: "_dist",
     emptyOutDir: true,
-    target:"esnext",
+    target: "esnext",
     rollupOptions: {
-      
       input: {
         main: r("src/main.tsx"),
       },
