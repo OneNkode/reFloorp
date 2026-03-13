@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { NoteList } from "./components/notes/NoteList.tsx";
 import { RichTextEditor } from "./components/editor/RichTextEditor.tsx";
 import { SerializedEditorState, SerializedLexicalNode } from "lexical";
@@ -20,7 +20,7 @@ function App() {
   const [title, setTitle] = useState("");
   const [isReorderMode, setIsReorderMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const editorKey = useRef(0);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const loadNotes = async () => {
@@ -52,24 +52,34 @@ function App() {
     loadNotes();
   }, [t]);
 
-  const saveNotesToStorage = async () => {
+  const saveNotesToStorage = useCallback(async (notesToSave: Note[]) => {
     try {
       const notesData: NotesData = {
-        titles: notes.map((note) => note.title),
-        contents: notes.map((note) => note.content),
+        titles: notesToSave.map((note) => note.title),
+        contents: notesToSave.map((note) => note.content),
       };
 
       await saveNotes(notesData);
     } catch (error) {
       console.error(t("error.saveFailed"), error);
     }
-  };
+  }, [t]);
+
+  // Debounced save to avoid frequent writes
+  const debouncedSave = useCallback((notesToSave: Note[]) => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    saveTimeoutRef.current = setTimeout(() => {
+      saveNotesToStorage(notesToSave);
+    }, 500);
+  }, [saveNotesToStorage]);
 
   useEffect(() => {
-    if (!isLoading) {
-      saveNotesToStorage();
+    if (!isLoading && notes.length > 0) {
+      debouncedSave(notes);
     }
-  }, [notes, isLoading]);
+  }, [notes, isLoading, debouncedSave]);
 
   const createNewNote = () => {
     const newNote: Note = {
@@ -82,7 +92,6 @@ function App() {
     setNotes([newNote, ...notes]);
     setSelectedNote(newNote);
     setTitle(newNote.title);
-    editorKey.current += 1;
   };
 
   const updateCurrentNote = (content: string) => {
@@ -112,7 +121,6 @@ function App() {
   const selectNote = (note: Note) => {
     setSelectedNote(note);
     setTitle(note.title);
-    editorKey.current += 1;
   };
 
   const handleEditorChange = (
@@ -187,9 +195,9 @@ function App() {
                         />
                         <div className="flex-1 flex flex-col rounded-lg overflow-hidden">
                           <RichTextEditor
-                            key={editorKey.current}
                             onChange={handleEditorChange}
                             initialContent={selectedNote.content}
+                            noteId={selectedNote.id}
                           />
                         </div>
                       </div>

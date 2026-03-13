@@ -16,45 +16,63 @@ import { $getRoot, $createParagraphNode, $createTextNode } from "lexical";
 interface RichTextEditorProps {
     onChange: (editorState: SerializedEditorState<SerializedLexicalNode>) => void;
     initialContent?: string;
+    noteId?: string;
 }
 
-export const RichTextEditor = ({ onChange, initialContent }: RichTextEditorProps) => {
+export const RichTextEditor = ({ onChange, initialContent, noteId }: RichTextEditorProps) => {
     return (
         <LexicalComposer initialConfig={editorConfig}>
-            <EditorContent onChange={onChange} initialContent={initialContent} />
+            <EditorContent onChange={onChange} initialContent={initialContent} noteId={noteId} />
         </LexicalComposer>
     );
 };
 
-const EditorContent = ({ onChange, initialContent }: RichTextEditorProps) => {
+const EditorContent = ({ onChange, initialContent, noteId }: RichTextEditorProps) => {
     const [editor] = useLexicalComposerContext();
-    const isInitialized = useRef(false);
+    const lastNoteIdRef = useRef<string | undefined>(undefined);
+    const isInternalChange = useRef(false);
 
+    // Update content when noteId changes (switching between notes)
     useEffect(() => {
-        if (initialContent && !isInitialized.current) {
-            try {
-                const parsedContent = JSON.parse(initialContent);
-                editor.setEditorState(editor.parseEditorState(parsedContent));
-            } catch (e) {
-                console.log("Failed to parse initial content:", e);
+        if (noteId !== lastNoteIdRef.current) {
+            lastNoteIdRef.current = noteId;
+            isInternalChange.current = true;
+            
+            if (initialContent) {
+                try {
+                    const parsedContent = JSON.parse(initialContent);
+                    editor.setEditorState(editor.parseEditorState(parsedContent));
+                } catch (e) {
+                    console.log("Failed to parse initial content:", e);
+                    editor.update(() => {
+                        const root = $getRoot();
+                        root.clear();
+
+                        const lines = initialContent.split("\n");
+
+                        for (const line of lines) {
+                            const paragraphNode = $createParagraphNode();
+                            if (line.length > 0) {
+                                paragraphNode.append($createTextNode(line));
+                            }
+                            root.append(paragraphNode);
+                        }
+                    });
+                }
+            } else {
                 editor.update(() => {
                     const root = $getRoot();
                     root.clear();
-
-                    const lines = initialContent.split("\n");
-
-                    for (const line of lines) {
-                        const paragraphNode = $createParagraphNode();
-                        if (line.length > 0) {
-                            paragraphNode.append($createTextNode(line));
-                        }
-                        root.append(paragraphNode);
-                    }
+                    root.append($createParagraphNode());
                 });
             }
-            isInitialized.current = true;
+            
+            // Reset flag after a short delay to allow OnChangePlugin to settle
+            setTimeout(() => {
+                isInternalChange.current = false;
+            }, 0);
         }
-    }, [editor, initialContent]);
+    }, [editor, initialContent, noteId]);
 
     return (
         <div className="flex flex-col h-full">
@@ -70,10 +88,12 @@ const EditorContent = ({ onChange, initialContent }: RichTextEditorProps) => {
             {onChange && (
                 <OnChangePlugin
                     onChange={(editorState) => {
-                        editorState.read(() => {
-                            const content = editorState.toJSON();
-                            onChange(content);
-                        });
+                        if (!isInternalChange.current) {
+                            editorState.read(() => {
+                                const content = editorState.toJSON();
+                                onChange(content);
+                            });
+                        }
                     }}
                 />
             )}

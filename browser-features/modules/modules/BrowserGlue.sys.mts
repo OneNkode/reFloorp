@@ -353,6 +353,7 @@ const JS_WINDOW_ACTORS: {
       "https://chromewebstore.google.com/*",
       "https://chrome.google.com/webstore/*",
     ],
+    allFrames: true,
   },
   NRPluginStore: {
     parent: {

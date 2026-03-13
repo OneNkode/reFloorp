@@ -98,6 +98,25 @@ const ADD_BUTTON_FALLBACK_SELECTOR =
 const EXTENSION_LOGO_SELECTOR = "main section:has(h1) img";
 
 // =============================================================================
+// SVG Path Constants
+// =============================================================================
+
+/** SVG path data for the plus icon (default state) */
+const SVG_PATH_PLUS = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z";
+
+/** SVG path data for the checkmark icon (success/installed state) */
+const SVG_PATH_CHECK = "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z";
+
+/** SVG path data for the error icon */
+const SVG_PATH_ERROR = "M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z";
+
+/** SVG path data for the info/warning icon */
+const SVG_PATH_INFO = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z";
+
+/** SVG path data for the close/X icon */
+const SVG_PATH_CLOSE = "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z";
+
+// =============================================================================
 // Main Class
 // =============================================================================
 
@@ -128,6 +147,56 @@ export class NRChromeWebStoreChild extends JSWindowActorChild {
       }
     }
     return result;
+  }
+
+  /**
+   * Create an SVG element with the given path
+   * This avoids using innerHTML which violates CSP on Chrome Web Store
+   */
+  private createSvgElement(viewBox: string, pathData: string, className?: string): SVGSVGElement {
+    const doc = this.document!;
+    const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", viewBox);
+    svg.setAttribute("fill", "currentColor");
+    if (className) {
+      svg.setAttribute("class", className);
+    }
+
+    const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", pathData);
+    svg.appendChild(path);
+
+    return svg;
+  }
+
+  /**
+   * Create a button content element with icon and text
+   * This avoids using innerHTML which violates CSP on Chrome Web Store
+   */
+  private createButtonContent(iconPathData: string, text: string): DocumentFragment {
+    const doc = this.document!;
+    const fragment = doc.createDocumentFragment();
+
+    // Create SVG icon
+    const svg = this.createSvgElement("0 0 24 24", iconPathData, "floorp-add-button__icon");
+    fragment.appendChild(svg);
+
+    // Create text span
+    const span = doc.createElement("span");
+    span.textContent = text;
+    fragment.appendChild(span);
+
+    return fragment;
+  }
+
+  /**
+   * Create a spinner element for loading state
+   */
+  private createSpinner(): HTMLElement {
+    const doc = this.document!;
+    const spinner = doc.createElement("div");
+    spinner.className = "floorp-add-button__spinner";
+    return spinner;
   }
 
   /**
@@ -252,7 +321,6 @@ export class NRChromeWebStoreChild extends JSWindowActorChild {
    */
   private onDOMContentLoaded(): void {
     const url = this.document?.location?.href;
-
     this.lastUrl = url ?? null;
 
     if (!url || !isChromeWebStoreUrl(url)) {
@@ -603,26 +671,8 @@ export class NRChromeWebStoreChild extends JSWindowActorChild {
       return false;
     }
 
-    // For SPA navigation: check if there are any links on the page containing the extension ID
-    // This helps verify the page content matches the URL
-    // Avoid selector injection: filter <a> elements by href in JS
-    const allAnchors = doc.querySelectorAll("a");
-    const allLinks = Array.from(allAnchors).filter((a) => {
-      const anchor = a as HTMLAnchorElement;
-      return anchor.href && anchor.href.includes(extensionId);
-    });
-    if (allLinks.length === 0) {
-      // Fallback: check if the main content area contains any reference to the extension
-      // The "詳細" section typically has a "懸念事項を報告" link with the extension ID
-      const mainContent = doc.querySelector("main");
-      if (mainContent) {
-        const mainText = mainContent.textContent ?? "";
-        if (!mainText.includes(extensionId)) {
-          return false;
-        }
-      }
-    }
-
+    // Note: The new Chrome Web Store doesn't include the extension ID in visible text anymore.
+    // We trust the URL contains the extension ID and the page has the expected structure (h1 + button).
     return true;
   }
 
@@ -881,12 +931,8 @@ export class NRChromeWebStoreChild extends JSWindowActorChild {
       this.updateButtonState(button, "installed");
     } else {
       const buttonText = this.t(CWS_I18N_KEYS.button.addToFloorp);
-      button.innerHTML = `
-      <svg class="floorp-add-button__icon" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/>
-      </svg>
-      <span>${this.escapeHtml(buttonText)}</span>
-    `;
+      const content = this.createButtonContent(SVG_PATH_PLUS, buttonText);
+      button.appendChild(content);
     }
 
     button.addEventListener("click", () => this.handleInstallClick());
@@ -957,15 +1003,20 @@ export class NRChromeWebStoreChild extends JSWindowActorChild {
       "floorp-add-button--installed",
     );
 
-    // Update content and class based on state
+    // Clear existing content first
+    while (button.firstChild) {
+      button.removeChild(button.firstChild);
+    }
+
     switch (state) {
       case "installing": {
         const installingText = this.t(CWS_I18N_KEYS.button.installing);
         button.classList.add("floorp-add-button--installing");
-        button.innerHTML = `
-          <div class="floorp-add-button__spinner"></div>
-          <span>${this.escapeHtml(installingText)}</span>
-        `;
+        const spinner = this.createSpinner();
+        button.appendChild(spinner);
+        const span = this.document!.createElement("span");
+        span.textContent = installingText;
+        button.appendChild(span);
         (button as HTMLButtonElement).disabled = true;
         break;
       }
@@ -973,12 +1024,7 @@ export class NRChromeWebStoreChild extends JSWindowActorChild {
       case "success": {
         const successText = this.t(CWS_I18N_KEYS.button.success);
         button.classList.add("floorp-add-button--success");
-        button.innerHTML = `
-          <svg class="floorp-add-button__icon" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
-          </svg>
-          <span>${this.escapeHtml(successText)}</span>
-        `;
+        button.appendChild(this.createButtonContent(SVG_PATH_CHECK, successText));
         (button as HTMLButtonElement).disabled = true;
         break;
       }
@@ -986,12 +1032,7 @@ export class NRChromeWebStoreChild extends JSWindowActorChild {
       case "installed": {
         const installedText = this.t(CWS_I18N_KEYS.button.installed);
         button.classList.add("floorp-add-button--installed");
-        button.innerHTML = `
-          <svg class="floorp-add-button__icon" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
-          </svg>
-          <span>${this.escapeHtml(installedText)}</span>
-        `;
+        button.appendChild(this.createButtonContent(SVG_PATH_CHECK, installedText));
         (button as HTMLButtonElement).disabled = true;
         break;
       }
@@ -999,24 +1040,14 @@ export class NRChromeWebStoreChild extends JSWindowActorChild {
       case "error": {
         const errorText = this.t(CWS_I18N_KEYS.button.error);
         button.classList.add("floorp-add-button--error");
-        button.innerHTML = `
-          <svg class="floorp-add-button__icon" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/>
-          </svg>
-          <span>${this.escapeHtml(errorText)}</span>
-        `;
+        button.appendChild(this.createButtonContent(SVG_PATH_ERROR, errorText));
         (button as HTMLButtonElement).disabled = true;
         break;
       }
 
       default: {
         const defaultText = this.t(CWS_I18N_KEYS.button.addToFloorp);
-        button.innerHTML = `
-          <svg class="floorp-add-button__icon" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/>
-          </svg>
-          <span>${this.escapeHtml(defaultText)}</span>
-        `;
+        button.appendChild(this.createButtonContent(SVG_PATH_PLUS, defaultText));
         (button as HTMLButtonElement).disabled = false;
       }
     }
@@ -1164,27 +1195,42 @@ export class NRChromeWebStoreChild extends JSWindowActorChild {
     const notice = doc.createElement("div");
     notice.id = "floorp-cws-error";
     notice.className = "floorp-cws-notice floorp-cws-notice--error";
-    notice.innerHTML = `
-      <svg class="floorp-cws-notice__icon" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
-      </svg>
-      <div style="flex: 1">
-        <strong>${this.escapeHtml(errorTitle)}</strong><br>
-        ${this.escapeHtml(message)}
-        <br><br>
-        <small>${this.escapeHtml(compatibilityNote)}</small>
-      </div>
-    `;
+
+    // Create error icon
+    const errorIcon = this.createSvgElement(
+      "0 0 24 24",
+      SVG_PATH_INFO,
+      "floorp-cws-notice__icon"
+    );
+    notice.appendChild(errorIcon);
+
+    // Create message container
+    const messageDiv = doc.createElement("div");
+    messageDiv.style.cssText = "flex: 1";
+
+    const titleStrong = doc.createElement("strong");
+    titleStrong.textContent = errorTitle;
+    messageDiv.appendChild(titleStrong);
+
+    messageDiv.appendChild(doc.createElement("br"));
+    messageDiv.appendChild(doc.createTextNode(message));
+    messageDiv.appendChild(doc.createElement("br"));
+    messageDiv.appendChild(doc.createElement("br"));
+
+    const small = doc.createElement("small");
+    small.textContent = compatibilityNote;
+    messageDiv.appendChild(small);
+
+    notice.appendChild(messageDiv);
 
     // Add close button
     const closeBtn = doc.createElement("button");
     closeBtn.style.cssText =
       "background:none;border:none;cursor:pointer;padding:0;color:inherit;opacity:0.7;margin-left:8px";
-    closeBtn.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-        </svg>
-    `;
+    const closeIcon = this.createSvgElement("0 0 24 24", SVG_PATH_CLOSE);
+    closeIcon.setAttribute("width", "16");
+    closeIcon.setAttribute("height", "16");
+    closeBtn.appendChild(closeIcon);
     closeBtn.addEventListener("click", () => notice.remove());
     notice.appendChild(closeBtn);
 
