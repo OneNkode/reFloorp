@@ -30,13 +30,22 @@ export const RichTextEditor = ({ onChange, initialContent, noteId }: RichTextEdi
 const EditorContent = ({ onChange, initialContent, noteId }: RichTextEditorProps) => {
     const [editor] = useLexicalComposerContext();
     const lastNoteIdRef = useRef<string | undefined>(undefined);
+    const lastInitialContentRef = useRef<string | undefined>(undefined);
     const isInternalChange = useRef(false);
+    const isInitialized = useRef(false);
 
     // Update content when noteId changes (switching between notes)
+    // Also runs on mount when initialContent is first available
     useEffect(() => {
-        if (noteId !== lastNoteIdRef.current) {
+        const shouldUpdate = noteId !== lastNoteIdRef.current ||
+                             initialContent !== lastInitialContentRef.current ||
+                             !isInitialized.current;
+
+        if (shouldUpdate) {
             lastNoteIdRef.current = noteId;
+            lastInitialContentRef.current = initialContent;
             isInternalChange.current = true;
+            isInitialized.current = true;
             
             if (initialContent) {
                 try {

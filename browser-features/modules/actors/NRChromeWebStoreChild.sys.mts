@@ -1227,6 +1227,8 @@ export class NRChromeWebStoreChild extends JSWindowActorChild {
     const closeBtn = doc.createElement("button");
     closeBtn.style.cssText =
       "background:none;border:none;cursor:pointer;padding:0;color:inherit;opacity:0.7;margin-left:8px";
+    closeBtn.setAttribute("aria-label", "Close");
+    closeBtn.setAttribute("title", "Close");
     const closeIcon = this.createSvgElement("0 0 24 24", SVG_PATH_CLOSE);
     closeIcon.setAttribute("width", "16");
     closeIcon.setAttribute("height", "16");
