@@ -23,6 +23,11 @@ import {
 } from "./utilities";
 import RootNode from "./root-node";
 import wrapNode from "./node";
+import {
+  formatFingerprintComment,
+  formatSelectorMapEntry,
+  type ElementFingerprint,
+} from "./fingerprint";
 
 interface EscapePattern {
   pattern: RegExp;
@@ -57,11 +62,21 @@ export interface TurndownServiceOptions {
   linkReferenceStyle?: "full" | "collapsed" | "shortcut";
   br?: string;
   preformattedCode?: boolean;
+  /** Enable element fingerprinting in output (default: false) */
+  enableFingerprints?: boolean;
+  /** Append selector map at the end of output (default: false) */
+  fingerprintSelectorMap?: boolean;
 }
 
 export class TurndownService {
   private options: TurndownOptions;
   rules: Rules;
+  /** Collected fingerprints for selector map generation */
+  private collectedFingerprints: Array<{
+    fingerprint: ElementFingerprint;
+    tagName: string;
+    textPreview: string;
+  }> = [];
 
   constructor(options: TurndownServiceOptions = {}) {
     const defaults: TurndownOptions = {
@@ -77,6 +92,8 @@ export class TurndownService {
       linkReferenceStyle: "full",
       br: "  ",
       preformattedCode: false,
+      enableFingerprints: false,
+      fingerprintSelectorMap: false,
       blankReplacement: function (content: string, node: ExtendedNode): string {
         return node.isBlock ? "\n\n" : "";
       },
@@ -107,6 +124,9 @@ export class TurndownService {
    * @returns A Markdown representation of the input
    */
   turndown(input: string | Element): string {
+    // Reset collected fingerprints for each conversion
+    this.collectedFingerprints = [];
+
     if (!canConvert(input)) {
       throw new TypeError(
         input + " is not a string, or an element/document/fragment node.",
@@ -121,7 +141,26 @@ export class TurndownService {
       this,
       RootNode(input, this.options) as unknown as ParentNode,
     );
-    return postProcess.call(this, output);
+    let result = postProcess.call(this, output);
+
+    // Append selector map if enabled and fingerprints were collected
+    if (
+      this.options.fingerprintSelectorMap &&
+      this.collectedFingerprints.length > 0
+    ) {
+      result += "\n\n---\n\n#### Element Selector Map\n\n";
+      result += "<!-- Fingerprint -> Element mappings for programmatic access -->\n";
+      for (const entry of this.collectedFingerprints) {
+        result +=
+          formatSelectorMapEntry(
+            entry.fingerprint,
+            entry.tagName,
+            entry.textPreview,
+          ) + "\n";
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -230,17 +269,33 @@ function postProcess(output: string): string {
  * Converts an element node to its Markdown equivalent
  */
 function replacementForNode(node: ExtendedNode): string {
+  const self = this as TurndownService;
   const rule = this.rules.forNode(node);
   let content = process.call(this, node as unknown as ParentNode);
   const whitespace = node.flankingWhitespace;
   if (whitespace.leading || whitespace.trailing) {
     content = content.trim();
   }
-  return (
-    whitespace.leading +
-    rule.replacement(content, node, this.options) +
-    whitespace.trailing
-  );
+
+  let replacement = rule.replacement(content, node, this.options);
+
+  // Embed fingerprint as HTML comment for block elements when enabled
+  if (this.options.enableFingerprints && node.fingerprint && node.isBlock) {
+    const fpComment = formatFingerprintComment(node.fingerprint);
+    // Prepend fingerprint comment for block elements
+    replacement = fpComment + replacement;
+
+    // Collect fingerprint for selector map
+    if (this.options.fingerprintSelectorMap) {
+      self.collectedFingerprints.push({
+        fingerprint: node.fingerprint,
+        tagName: node.nodeName.toLowerCase(),
+        textPreview: (node.textContent || "").slice(0, 50),
+      });
+    }
+  }
+
+  return whitespace.leading + replacement + whitespace.trailing;
 }
 
 /**

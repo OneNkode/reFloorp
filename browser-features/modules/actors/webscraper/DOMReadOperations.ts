@@ -356,6 +356,72 @@ export class DOMReadOperations {
   }
 
   /**
+   * Gets the page content as Markdown with element fingerprints.
+   * Fingerprints are stable identifiers that survive id/class/data-* attribute changes.
+   *
+   * Each block element is prefixed with an HTML comment containing its fingerprint:
+   * `<!--fp:abc12345-->`
+   *
+   * If includeSelectorMap is true, a selector map is appended at the end:
+   * `[abc12345def67890]: p "Preview text"`
+   *
+   * @param includeSelectorMap If true, appends a fingerprint-to-element mapping at the end
+   * @returns Markdown with embedded fingerprints, or null on error
+   */
+  getTextWithFingerprints(includeSelectorMap: boolean = false): string | null {
+    try {
+      const doc = this.document;
+      if (!doc?.body) return null;
+
+      // Create a new converter instance with fingerprint options
+      const fingerprintConverter = new TurndownService({
+        headingStyle: "atx",
+        codeBlockStyle: "fenced",
+        bulletListMarker: "-",
+        enableFingerprints: true,
+        fingerprintSelectorMap: includeSelectorMap,
+      });
+
+      // Clone body to avoid modifying the original document
+      const bodyClone = doc.body.cloneNode(true) as Element;
+
+      // Remove non-content elements (scripts, styles, noscript) before conversion
+      const elementsToRemove = bodyClone.querySelectorAll(
+        "script, style, noscript",
+      );
+      for (const elem of Array.from(elementsToRemove)) {
+        elem.remove();
+      }
+
+      const markdown = fingerprintConverter.turndown(bodyClone);
+      if (!markdown) return null;
+
+      let result = markdown;
+
+      // Also include text from Shadow DOM (for React/Web Components sites)
+      // Note: Shadow DOM content doesn't get fingerprints
+      const shadowText = this.getTextFromShadowDOM(doc.body);
+      if (shadowText) {
+        result += "\n\n---\n\n#### Shadow DOM Content\n\n" + shadowText.trim() + "\n\n";
+      }
+
+      // Also include text from iframes (for Gmail, email clients, etc.)
+      const iframeText = this.getTextFromIframes(doc);
+      if (iframeText) {
+        result += "\n\n---\n\n#### iframe Content\n\n" + iframeText.trim() + "\n\n";
+      }
+
+      // Normalize whitespace
+      return result
+        .replace(/\n{3,}/g, "\n\n") // Limit consecutive newlines
+        .trim();
+    } catch (e) {
+      console.error("DOMReadOperations: Error getting text with fingerprints:", e);
+      return null;
+    }
+  }
+
+  /**
    * Extracts text from Shadow DOM trees.
    * Uses TreeWalker for efficient traversal of large DOMs.
    */

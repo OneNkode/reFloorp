@@ -14,6 +14,10 @@ import {
   isMeaningfulWhenBlank,
   hasMeaningfulWhenBlank,
 } from "./utilities";
+import {
+  generateFingerprint,
+  type ElementFingerprint,
+} from "./fingerprint";
 
 export interface ExtendedNode extends Node {
   isBlock: boolean;
@@ -23,10 +27,14 @@ export interface ExtendedNode extends Node {
     leading: string;
     trailing: string;
   };
+  /** Element fingerprint (only set for element nodes when fingerprints enabled) */
+  fingerprint?: ElementFingerprint;
 }
 
 interface NodeTurndownOptions {
   preformattedCode: boolean;
+  /** Enable fingerprint generation for elements */
+  enableFingerprints?: boolean;
 }
 
 export default function wrapNode(node: Node, options: NodeTurndownOptions): ExtendedNode {
@@ -36,6 +44,13 @@ export default function wrapNode(node: Node, options: NodeTurndownOptions): Exte
   extended.isCode = node.nodeName === "CODE" || (parentNode?.isCode ?? false);
   extended.isBlank = isBlank(node);
   extended.flankingWhitespace = flankingWhitespace(node, options);
+
+  // Generate fingerprint for block elements only (performance optimization)
+  // Fingerprints are only used for block elements in the output
+  if (options.enableFingerprints && node.nodeType === 1 && extended.isBlock) { // Node.ELEMENT_NODE
+    extended.fingerprint = generateFingerprint(node as Element);
+  }
+
   return extended;
 }
 
