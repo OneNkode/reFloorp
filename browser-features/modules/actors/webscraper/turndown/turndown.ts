@@ -282,8 +282,23 @@ function replacementForNode(node: ExtendedNode): string {
   // Embed fingerprint as HTML comment for block elements when enabled
   if (this.options.enableFingerprints && node.fingerprint && node.isBlock) {
     const fpComment = formatFingerprintComment(node.fingerprint);
-    // Prepend fingerprint comment for block elements
-    replacement = fpComment + replacement;
+
+    // Handle list markers specially - insert fingerprint after the marker
+    // to avoid breaking Markdown list syntax (e.g., "- item" -> "- <!--fp:...-->item")
+    // Matches: optional leading whitespace, then "- ", "* ", "+ ", or "1. ", "2. ", etc.
+    const listMarkerMatch = replacement.match(/^(\s*)([-*+]|\d+\.)(\s+)/);
+    if (listMarkerMatch) {
+      // Insert fingerprint after the list marker
+      replacement =
+        listMarkerMatch[1] +
+        listMarkerMatch[2] +
+        fpComment +
+        listMarkerMatch[3] +
+        replacement.slice(listMarkerMatch[0].length);
+    } else {
+      // For other block elements, prepend fingerprint
+      replacement = fpComment + replacement;
+    }
 
     // Collect fingerprint for selector map
     if (this.options.fingerprintSelectorMap) {

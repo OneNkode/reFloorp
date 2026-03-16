@@ -244,7 +244,8 @@ export interface SelectorMapEntry {
  */
 export function parseSelectorMap(markdown: string): SelectorMapEntry[] {
   // Regex handles escaped quotes (\") within the text preview
-  const regex = /\[([a-z0-9]{16})\]:\s*(\w+)\s*"((?:[^"\\]|\\.)*)"/g;
+  // Tag name pattern allows hyphens for custom elements (e.g., my-component)
+  const regex = /\[([a-z0-9]{16})\]:\s*([\w-]+)\s*"((?:[^"\\]|\\.)*)"/g;
   const results: SelectorMapEntry[] = [];
   let match: RegExpExecArray | null;
 
