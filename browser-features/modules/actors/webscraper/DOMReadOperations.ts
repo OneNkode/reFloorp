@@ -350,9 +350,11 @@ export class DOMReadOperations {
       // Clone body to avoid modifying the original document
       const bodyClone = doc.body.cloneNode(true) as Element;
 
-      // Remove non-content elements (scripts, styles, noscript) before conversion
+      // Remove non-content elements before conversion:
+      // - script, style, noscript: standard non-visible elements
+      // - [class^="nr-webscraper-"]: highlight overlays injected by automation
       const elementsToRemove = bodyClone.querySelectorAll(
-        "script, style, noscript",
+        'script, style, noscript, [class^="nr-webscraper-"], [id="nr-webscraper-highlight-style"]',
       );
       for (const elem of Array.from(elementsToRemove)) {
         elem.remove();
