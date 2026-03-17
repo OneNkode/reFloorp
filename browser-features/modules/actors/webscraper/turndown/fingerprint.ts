@@ -45,12 +45,44 @@ const DEFAULT_OPTIONS: FingerprintOptions = {
 };
 
 /**
- * Tag names excluded from sibling index calculation.
- * These elements are removed from the cloned DOM before Markdown conversion
- * (in DOMReadOperations.getText), so they must also be excluded when
+ * Tag names excluded from fingerprint computation (sibling index, text content,
+ * child count). These elements are removed from the cloned DOM before Markdown
+ * conversion (in DOMReadOperations.getText), so they must also be excluded when
  * computing fingerprints on the original DOM to ensure consistent results.
  */
 const STRUCTURAL_EXCLUDED_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT"]);
+
+/**
+ * CSS class prefix for elements injected by the highlight manager.
+ * These overlays are added/removed dynamically during automation operations
+ * and must be excluded from fingerprint computation to maintain consistency
+ * between getText() output (cloned DOM without overlays) and
+ * findElementByFingerprint() lookups (live DOM with potential overlays).
+ */
+const HIGHLIGHT_OVERLAY_CLASS_PREFIX = "nr-webscraper-";
+
+/**
+ * Check if an element is a highlight overlay injected by the automation system.
+ */
+function isHighlightOverlay(element: Element): boolean {
+  const className = element.className;
+  if (typeof className === "string" && className.startsWith(HIGHLIGHT_OVERLAY_CLASS_PREFIX)) {
+    return true;
+  }
+  // Also check the element's id for the style element
+  if (element.id === "nr-webscraper-highlight-style") {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Check if an element should be excluded from fingerprint computation.
+ * Excludes both structural tags (script/style/noscript) and highlight overlays.
+ */
+function isExcludedElement(element: Element): boolean {
+  return STRUCTURAL_EXCLUDED_TAGS.has(element.nodeName) || isHighlightOverlay(element);
+}
 
 /**
  * Simple non-cryptographic hash function (djb2 variant)
@@ -82,13 +114,13 @@ function getFilteredTextContent(element: Element): string {
         // Walk up to check if any ancestor (up to our target element) is excluded
         let parent = node.parentElement;
         while (parent && parent !== element) {
-          if (STRUCTURAL_EXCLUDED_TAGS.has(parent.nodeName)) {
+          if (isExcludedElement(parent)) {
             return NodeFilter.FILTER_REJECT;
           }
           parent = parent.parentElement;
         }
         // Also reject if the direct parent is excluded
-        if (node.parentElement && STRUCTURAL_EXCLUDED_TAGS.has(node.parentElement.nodeName)) {
+        if (node.parentElement && isExcludedElement(node.parentElement)) {
           return NodeFilter.FILTER_REJECT;
         }
         return NodeFilter.FILTER_ACCEPT;
@@ -110,7 +142,7 @@ function getFilteredTextContent(element: Element): string {
 function getFilteredChildCount(element: Element): number {
   let count = 0;
   for (let i = 0; i < element.children.length; i++) {
-    if (!STRUCTURAL_EXCLUDED_TAGS.has(element.children[i].nodeName)) {
+    if (!isExcludedElement(element.children[i])) {
       count++;
     }
   }
@@ -187,11 +219,11 @@ export function generateFingerprint(
     const tagName = current.nodeName.toLowerCase();
 
     if (opts.includeSiblingIndex && current.parentElement && current.parentElement.children) {
-      // Exclude script/style/noscript from sibling counting so fingerprints
-      // are consistent between the original DOM and the clone used for
-      // Markdown conversion (where these elements are removed).
+      // Exclude script/style/noscript and highlight overlays from sibling
+      // counting so fingerprints are consistent between the original DOM
+      // and the clone used for Markdown conversion.
       const siblings = Array.from(current.parentElement.children)
-        .filter((s) => !STRUCTURAL_EXCLUDED_TAGS.has(s.nodeName));
+        .filter((s) => !isExcludedElement(s));
       const index = siblings.indexOf(current);
       path.unshift(`${tagName}[${index}]`);
     } else {
@@ -362,10 +394,19 @@ export function findElementByFingerprint(
   const isShortFingerprint = fingerprint.length === 8;
   const startTime = Date.now();
 
-  // Use TreeWalker for efficient traversal
+  // Use TreeWalker for efficient traversal, skipping highlight overlays
   const walker = root.ownerDocument.createTreeWalker(
     root,
     NodeFilter.SHOW_ELEMENT,
+    {
+      acceptNode(node: Node): number {
+        // Skip highlight overlay subtrees entirely
+        if (isHighlightOverlay(node as Element)) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    },
   );
 
   let node: Node | null;
@@ -382,6 +423,10 @@ export function findElementByFingerprint(
     }
 
     const element = node as Element;
+    // Also skip excluded structural elements
+    if (STRUCTURAL_EXCLUDED_TAGS.has(element.nodeName)) {
+      continue;
+    }
     const fp = generateFingerprint(element, opts);
 
     // Match against short or full fingerprint
@@ -419,9 +464,18 @@ export function findElementsByFingerprint(
   const matches: Element[] = [];
   const startTime = Date.now();
 
+  // Use TreeWalker with highlight overlay filtering
   const walker = root.ownerDocument.createTreeWalker(
     root,
     NodeFilter.SHOW_ELEMENT,
+    {
+      acceptNode(node: Node): number {
+        if (isHighlightOverlay(node as Element)) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    },
   );
 
   let node: Node | null;
@@ -438,6 +492,9 @@ export function findElementsByFingerprint(
     }
 
     const element = node as Element;
+    if (STRUCTURAL_EXCLUDED_TAGS.has(element.nodeName)) {
+      continue;
+    }
     const fp = generateFingerprint(element, opts);
 
     if (isShortFingerprint) {
