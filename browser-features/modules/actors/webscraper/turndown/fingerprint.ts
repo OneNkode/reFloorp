@@ -55,13 +55,66 @@ const STRUCTURAL_EXCLUDED_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT"]);
 /**
  * Simple non-cryptographic hash function (djb2 variant)
  * Fast and produces consistent results across runs
+ *
+ * @param str The string to hash
+ * @param seed Initial hash value (use different seeds for independent hashes)
  */
-function hashString(str: string): number {
-  let hash = 5381;
+function hashString(str: string, seed: number = 5381): number {
+  let hash = seed;
   for (let i = 0; i < str.length; i++) {
     hash = ((hash << 5) + hash) ^ str.charCodeAt(i);
   }
   return hash >>> 0; // Convert to unsigned 32-bit integer
+}
+
+/**
+ * Get text content of an element, excluding text from script/style/noscript
+ * descendants. This matches the behavior of cloned DOMs where these elements
+ * are removed before fingerprint generation.
+ */
+function getFilteredTextContent(element: Element): string {
+  let text = "";
+  const walker = element.ownerDocument.createTreeWalker(
+    element,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(node: Node): number {
+        // Walk up to check if any ancestor (up to our target element) is excluded
+        let parent = node.parentElement;
+        while (parent && parent !== element) {
+          if (STRUCTURAL_EXCLUDED_TAGS.has(parent.nodeName)) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          parent = parent.parentElement;
+        }
+        // Also reject if the direct parent is excluded
+        if (node.parentElement && STRUCTURAL_EXCLUDED_TAGS.has(node.parentElement.nodeName)) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    },
+  );
+
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    text += node.textContent || "";
+  }
+  return text;
+}
+
+/**
+ * Count child elements excluding script/style/noscript, matching the
+ * cloned DOM structure used for Markdown conversion.
+ */
+function getFilteredChildCount(element: Element): number {
+  let count = 0;
+  for (let i = 0; i < element.children.length; i++) {
+    if (!STRUCTURAL_EXCLUDED_TAGS.has(element.children[i].nodeName)) {
+      count++;
+    }
+  }
+  return count;
 }
 
 /**
@@ -115,7 +168,9 @@ export function generateFingerprint(
   components.push(element.nodeName.toLowerCase());
 
   // 2. Text content (first N characters, normalized)
-  const textContent = (element.textContent || "")
+  // Use filtered text content that excludes script/style/noscript descendants,
+  // matching the cloned DOM where these elements are removed before conversion.
+  const textContent = getFilteredTextContent(element)
     .trim()
     .replace(/\s+/g, " ")
     .slice(0, opts.textContentLength);
@@ -150,7 +205,8 @@ export function generateFingerprint(
   components.push(path.join("/"));
 
   // 4. Child element count (structural signature)
-  components.push(`children:${element.children.length}`);
+  // Exclude script/style/noscript from count to match cloned DOM
+  components.push(`children:${getFilteredChildCount(element)}`);
 
   // 5. Attribute names only (not values - those may change)
   const attrNames = Array.from(element.attributes)
@@ -162,10 +218,12 @@ export function generateFingerprint(
     components.push(`attrs:${attrNames}`);
   }
 
-  // Generate hashes
+  // Generate hashes using independent seeds for better collision resistance.
+  // Different seeds produce truly independent hash values, unlike appending
+  // a suffix which produces correlated outputs from the same hash function.
   const fingerprintString = components.join("|");
-  const primaryHash = hashString(fingerprintString);
-  const secondaryHash = hashString(fingerprintString + "_secondary");
+  const primaryHash = hashString(fingerprintString, 5381);
+  const secondaryHash = hashString(fingerprintString, 33797);
 
   return {
     short: toBase36(primaryHash).slice(0, 8).padStart(8, "0"),
@@ -197,10 +255,14 @@ export function formatSelectorMapEntry(
   tagName: string,
   textPreview: string,
 ): string {
-  // Escape double quotes and newlines in preview text
+  // Escape special characters in preview text to preserve the pipe-delimited format.
+  // Order matters: escape backslashes first to avoid double-escaping.
   const preview = textPreview
     .trim()
+    .replace(/\\/g, "\\\\")
+    .replace(/\r/g, "")
     .replace(/\n/g, " ")
+    .replace(/\|/g, "\\|")
     .replace(/"/g, '\\"')
     .slice(0, 50);
   return `fp:${fingerprint.full} | ${tagName} | "${preview}"`;
@@ -266,11 +328,14 @@ export function parseSelectorMap(markdown: string): SelectorMapEntry[] {
   let match: RegExpExecArray | null;
 
   while ((match = regex.exec(markdown)) !== null) {
-    // Unescape any escaped quotes in the text preview
+    // Unescape escaped characters in the text preview
     results.push({
       fingerprint: match[1],
       tagName: match[2],
-      textPreview: match[3].replace(/\\"/g, '"'),
+      textPreview: match[3]
+        .replace(/\\"/g, '"')
+        .replace(/\\\|/g, "|")
+        .replace(/\\\\/g, "\\"),
     });
   }
 

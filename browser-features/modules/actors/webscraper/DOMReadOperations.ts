@@ -21,6 +21,30 @@ export class DOMReadOperations {
     return this.deps.getDocument();
   }
 
+  /** Shared converter for plain Markdown (no fingerprints) */
+  private readonly plainConverter = new TurndownService({
+    headingStyle: "atx",
+    codeBlockStyle: "fenced",
+    bulletListMarker: "-",
+  });
+
+  /** Shared converter for Markdown with embedded fingerprints */
+  private readonly fingerprintConverter = new TurndownService({
+    headingStyle: "atx",
+    codeBlockStyle: "fenced",
+    bulletListMarker: "-",
+    enableFingerprints: true,
+  });
+
+  /** Shared converter for Markdown with fingerprints + selector map */
+  private readonly fingerprintWithMapConverter = new TurndownService({
+    headingStyle: "atx",
+    codeBlockStyle: "fenced",
+    bulletListMarker: "-",
+    enableFingerprints: true,
+    fingerprintSelectorMap: true,
+  });
+
   getHTML(): string | null {
     try {
       const win = this.contentWindow;
@@ -296,31 +320,32 @@ export class DOMReadOperations {
   }
 
   /**
-   * Gets the page content as Markdown with element fingerprints.
-   * Fingerprints are stable identifiers that survive id/class/data-* attribute changes.
+   * Gets the page content as Markdown, optionally with element fingerprints.
    *
-   * Each block element is prefixed with an HTML comment containing its fingerprint:
-   * `<!--fp:abc12345-->`
+   * When fingerprints are enabled, each block element is prefixed with an
+   * HTML comment containing its fingerprint: `<!--fp:abc12345-->`
    *
    * If includeSelectorMap is true, a selector map is appended at the end:
    * `fp:abc12345def67890 | p | "Preview text"`
    *
-   * @param includeSelectorMap If true, appends a fingerprint-to-element mapping at the end
-   * @returns Markdown with embedded fingerprints, or null on error
+   * @param includeSelectorMap If true, enables fingerprints and appends element mappings
+   * @param enableFingerprints If true, embeds fingerprints in the Markdown output (default: true)
+   * @returns Markdown content, or null on error
    */
-  getText(includeSelectorMap: boolean = false): string | null {
+  getText(includeSelectorMap: boolean = false, enableFingerprints: boolean = true): string | null {
     try {
       const doc = this.document;
       if (!doc?.body) return null;
 
-      // Create converter with fingerprint options (always enabled)
-      const fingerprintConverter = new TurndownService({
-        headingStyle: "atx",
-        codeBlockStyle: "fenced",
-        bulletListMarker: "-",
-        enableFingerprints: true,
-        fingerprintSelectorMap: includeSelectorMap,
-      });
+      // Select the appropriate cached converter
+      let converter: TurndownService;
+      if (includeSelectorMap) {
+        converter = this.fingerprintWithMapConverter;
+      } else if (enableFingerprints) {
+        converter = this.fingerprintConverter;
+      } else {
+        converter = this.plainConverter;
+      }
 
       // Clone body to avoid modifying the original document
       const bodyClone = doc.body.cloneNode(true) as Element;
@@ -333,7 +358,7 @@ export class DOMReadOperations {
         elem.remove();
       }
 
-      const markdown = fingerprintConverter.turndown(bodyClone);
+      const markdown = converter.turndown(bodyClone);
       if (!markdown) return null;
 
       let result = markdown;
