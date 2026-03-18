@@ -6,10 +6,6 @@
 import type { DOMOpsDeps } from "./DOMDeps.ts";
 import { unwrapElement, unwrapWindow } from "./utils.ts";
 
-const { setTimeout: timerSetTimeout } = ChromeUtils.importESModule(
-  "resource://gre/modules/Timer.sys.mjs",
-);
-
 /**
  * Interaction-oriented DOM utilities (click/hover/keys/drag)
  */
@@ -29,7 +25,7 @@ export class DOMActionOperations {
       const element = this.document?.querySelector(
         selector,
       ) as HTMLElement | null;
-      if (!element) return Promise.resolve(false);
+      if (!element) return false;
 
       const elementTagName = element.tagName?.toLowerCase() || "element";
       const elementTextRaw = element.textContent?.trim() || "";
@@ -61,15 +57,21 @@ export class DOMActionOperations {
 
       const options = this.deps.highlightManager.getHighlightOptions("Click");
 
-      const effectPromise = this.deps.highlightManager
+      this.deps.highlightManager
         .applyHighlight(element, options, elementInfo)
         .catch(() => {});
 
       const win = this.contentWindow ?? null;
-      const Ev = (win?.Event ?? globalThis.Event) as typeof Event;
-      const MouseEv = (win?.MouseEvent ?? globalThis.MouseEvent ?? null) as
+      const rawWin = unwrapWindow(win);
+      const rawElement = unwrapElement(
+        element as HTMLElement & Partial<{ wrappedJSObject: HTMLElement }>,
+      );
+      const Ev = (rawWin?.Event ?? globalThis.Event) as typeof Event;
+      const MouseEv = (rawWin?.MouseEvent ?? globalThis.MouseEvent ?? null) as
         | typeof MouseEvent
         | null;
+      const cloneOpts = (opts: object) =>
+        this.deps.eventDispatcher.cloneIntoPageContext(opts);
 
       const tagName = (element.tagName || "").toUpperCase();
       const isInput = tagName === "INPUT";
@@ -81,8 +83,12 @@ export class DOMActionOperations {
 
       const triggerInputEvents = () => {
         try {
-          element.dispatchEvent(new Ev("input", { bubbles: true }));
-          element.dispatchEvent(new Ev("change", { bubbles: true }));
+          rawElement.dispatchEvent(
+            new Ev("input", cloneOpts({ bubbles: true })),
+          );
+          rawElement.dispatchEvent(
+            new Ev("change", cloneOpts({ bubbles: true })),
+          );
         } catch (err) {
           console.warn(
             "DOMActionOperations: input/change dispatch failed",
@@ -120,25 +126,28 @@ export class DOMActionOperations {
           0,
         );
 
-      try {
-        const rawElement = unwrapElement(
-          element as HTMLElement & Partial<{ wrappedJSObject: HTMLElement }>,
-        );
-        rawElement.click();
-        clickDispatched = true;
-      } catch {
-        // ignore
+      // Skip rawElement.click() for checkbox/radio — the state was already
+      // toggled above and a second click would revert it.
+      if (!stateChanged) {
+        try {
+          rawElement.click();
+          clickDispatched = true;
+        } catch {
+          // ignore
+        }
       }
 
       if (!clickDispatched && MouseEv) {
         try {
-          element.dispatchEvent(
-            new MouseEv("click", {
-              bubbles: true,
-              cancelable: true,
-              composed: true,
-              view: win ?? undefined,
-            }),
+          rawElement.dispatchEvent(
+            new MouseEv(
+              "click",
+              this.deps.eventDispatcher.cloneEventInit({
+                bubbles: true,
+                cancelable: true,
+                composed: true,
+              }),
+            ),
           );
           clickDispatched = true;
         } catch (err) {
@@ -148,25 +157,18 @@ export class DOMActionOperations {
 
       if ((isButton || isLink) && !clickDispatched) {
         try {
-          element.dispatchEvent(
-            new Ev("submit", { bubbles: true, cancelable: true }),
+          rawElement.dispatchEvent(
+            new Ev("submit", cloneOpts({ bubbles: true, cancelable: true })),
           );
         } catch (err) {
           console.warn("DOMActionOperations: submit dispatch failed", err);
         }
       }
 
-      const success = stateChanged || clickDispatched;
-
-      await Promise.race([
-        effectPromise,
-        new Promise((resolve) => timerSetTimeout(resolve, 300)),
-      ]);
-
-      return success;
+      return stateChanged || clickDispatched;
     } catch (e) {
       console.error("DOMActionOperations: Error clicking element:", e);
-      return Promise.resolve(false);
+      return false;
     }
   }
 
@@ -183,11 +185,9 @@ export class DOMActionOperations {
       );
       const options = this.deps.highlightManager.getHighlightOptions("Inspect");
 
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       const rect = element.getBoundingClientRect();
       const centerX = rect.left + rect.width / 2;
@@ -201,33 +201,41 @@ export class DOMActionOperations {
       if (!rawWin) return false;
 
       const MouseEv = rawWin.MouseEvent ?? globalThis.MouseEvent;
+      const cloneEvInit = (opts: Record<string, unknown>) =>
+        this.deps.eventDispatcher.cloneEventInit(opts);
 
       rawElement.dispatchEvent(
-        new MouseEv("mouseenter", {
-          bubbles: false,
-          cancelable: false,
-          clientX: centerX,
-          clientY: centerY,
-          view: rawWin as Window & typeof globalThis,
-        }),
+        new MouseEv(
+          "mouseenter",
+          cloneEvInit({
+            bubbles: false,
+            cancelable: false,
+            clientX: centerX,
+            clientY: centerY,
+          }),
+        ),
       );
       rawElement.dispatchEvent(
-        new MouseEv("mouseover", {
-          bubbles: true,
-          cancelable: true,
-          clientX: centerX,
-          clientY: centerY,
-          view: rawWin as Window & typeof globalThis,
-        }),
+        new MouseEv(
+          "mouseover",
+          cloneEvInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: centerX,
+            clientY: centerY,
+          }),
+        ),
       );
       rawElement.dispatchEvent(
-        new MouseEv("mousemove", {
-          bubbles: true,
-          cancelable: true,
-          clientX: centerX,
-          clientY: centerY,
-          view: rawWin as Window & typeof globalThis,
-        }),
+        new MouseEv(
+          "mousemove",
+          cloneEvInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: centerX,
+            clientY: centerY,
+          }),
+        ),
       );
 
       return true;
@@ -252,11 +260,9 @@ export class DOMActionOperations {
 
       element.scrollIntoView({ behavior: "smooth", block: "center" });
 
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       return true;
     } catch (e) {
@@ -278,11 +284,9 @@ export class DOMActionOperations {
       );
       const options = this.deps.highlightManager.getHighlightOptions("Click");
 
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       this.deps.eventDispatcher.scrollIntoViewIfNeeded(element);
       this.deps.eventDispatcher.focusElementSoft(element);
@@ -314,14 +318,16 @@ export class DOMActionOperations {
       const MouseEv = rawWin.MouseEvent ?? globalThis.MouseEvent;
 
       rawElement.dispatchEvent(
-        new MouseEv("dblclick", {
-          bubbles: true,
-          cancelable: true,
-          clientX: centerX,
-          clientY: centerY,
-          view: rawWin as Window & typeof globalThis,
-          detail: 2,
-        }),
+        new MouseEv(
+          "dblclick",
+          this.deps.eventDispatcher.cloneEventInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: centerX,
+            clientY: centerY,
+            detail: 2,
+          }),
+        ),
       );
 
       return true;
@@ -344,11 +350,9 @@ export class DOMActionOperations {
       );
       const options = this.deps.highlightManager.getHighlightOptions("Click");
 
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       this.deps.eventDispatcher.scrollIntoViewIfNeeded(element);
       this.deps.eventDispatcher.focusElementSoft(element);
@@ -374,14 +378,16 @@ export class DOMActionOperations {
       const MouseEv = rawWin.MouseEvent ?? globalThis.MouseEvent;
 
       rawElement.dispatchEvent(
-        new MouseEv("contextmenu", {
-          bubbles: true,
-          cancelable: true,
-          clientX: centerX,
-          clientY: centerY,
-          view: rawWin as Window & typeof globalThis,
-          button: 2,
-        }),
+        new MouseEv(
+          "contextmenu",
+          this.deps.eventDispatcher.cloneEventInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: centerX,
+            clientY: centerY,
+            button: 2,
+          }),
+        ),
       );
 
       return true;
@@ -404,11 +410,9 @@ export class DOMActionOperations {
       );
       const options = this.deps.highlightManager.getHighlightOptions("Input");
 
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       const win = this.contentWindow;
       const rawWin = unwrapWindow(win);
@@ -467,11 +471,44 @@ export class DOMActionOperations {
 
       const KeyboardEv = rawWin.KeyboardEvent ?? globalThis.KeyboardEvent;
 
+      // Map logical key names to physical key codes
+      const keyToCode = (k: string): string => {
+        if (k.length === 1) {
+          const upper = k.toUpperCase();
+          if (upper >= "A" && upper <= "Z") return `Key${upper}`;
+          if (k >= "0" && k <= "9") return `Digit${k}`;
+          const special: Record<string, string> = {
+            " ": "Space", ",": "Comma", ".": "Period", "/": "Slash",
+            ";": "Semicolon", "'": "Quote", "[": "BracketLeft",
+            "]": "BracketRight", "\\": "Backslash", "-": "Minus",
+            "=": "Equal", "`": "Backquote",
+          };
+          return special[k] ?? k;
+        }
+        const multi: Record<string, string> = {
+          Control: "ControlLeft", Shift: "ShiftLeft",
+          Alt: "AltLeft", Meta: "MetaLeft",
+        };
+        return multi[k] ?? k;
+      };
+
+      // Compute modifier flags from the modifier key names
+      const ctrlKey = modifiers.some((m) => m === "Control");
+      const shiftKey = modifiers.some((m) => m === "Shift");
+      const altKey = modifiers.some((m) => m === "Alt");
+      const metaKey = modifiers.some((m) => m === "Meta");
+      const modifierFlags = { ctrlKey, shiftKey, altKey, metaKey };
+
       const dispatch = (type: string, opts: KeyboardEventInit) => {
         try {
           return (
             activeRaw?.dispatchEvent(
-              new KeyboardEv(type, { ...opts, view: rawWin }),
+              new KeyboardEv(
+                type,
+                this.deps.eventDispatcher.cloneEventInit(
+                  opts as Record<string, unknown>,
+                ),
+              ),
             ) ?? false
           );
         } catch {
@@ -480,15 +517,15 @@ export class DOMActionOperations {
       };
 
       for (const mod of modifiers) {
-        dispatch("keydown", { key: mod, code: mod, bubbles: true });
+        dispatch("keydown", { key: mod, code: keyToCode(mod), bubbles: true, ...modifierFlags });
       }
 
-      dispatch("keydown", { key, code: key, bubbles: true });
-      dispatch("keypress", { key, code: key, bubbles: true });
-      dispatch("keyup", { key, code: key, bubbles: true });
+      dispatch("keydown", { key, code: keyToCode(key), bubbles: true, ...modifierFlags });
+      dispatch("keypress", { key, code: keyToCode(key), bubbles: true, ...modifierFlags });
+      dispatch("keyup", { key, code: keyToCode(key), bubbles: true, ...modifierFlags });
 
-      for (const mod of modifiers.reverse()) {
-        dispatch("keyup", { key: mod, code: mod, bubbles: true });
+      for (const mod of [...modifiers].reverse()) {
+        dispatch("keyup", { key: mod, code: keyToCode(mod), bubbles: true, ...modifierFlags });
       }
 
       await Promise.resolve();
@@ -522,16 +559,12 @@ export class DOMActionOperations {
       );
       const options = this.deps.highlightManager.getHighlightOptions("Input");
 
-      await this.deps.highlightManager.applyHighlight(
-        source,
-        options,
-        elementInfo,
-      );
-      await this.deps.highlightManager.applyHighlight(
-        target,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(source, options, elementInfo)
+        .catch(() => {});
+      this.deps.highlightManager
+        .applyHighlight(target, options, elementInfo)
+        .catch(() => {});
 
       const sourceRect = source.getBoundingClientRect();
       const targetRect = target.getBoundingClientRect();
@@ -555,70 +588,83 @@ export class DOMActionOperations {
 
       const dataTransfer = new DataTransferCtor();
 
-      rawSource.dispatchEvent(
-        new DragEv("dragstart", {
-          bubbles: true,
-          cancelable: true,
-          clientX: sourceX,
-          clientY: sourceY,
-          dataTransfer,
-          view: rawWin as Window & typeof globalThis,
-        }),
-      );
+      // Clone serializable properties, then re-attach dataTransfer (non-clonable DOM object)
+      const makeDragInit = (serializable: Record<string, unknown>) => {
+        const cloned = this.deps.eventDispatcher.cloneEventInit(serializable);
+        (cloned as Record<string, unknown>).dataTransfer = dataTransfer;
+        return cloned;
+      };
 
       rawSource.dispatchEvent(
-        new DragEv("drag", {
-          bubbles: true,
-          cancelable: true,
-          clientX: sourceX,
-          clientY: sourceY,
-          dataTransfer,
-          view: rawWin as Window & typeof globalThis,
-        }),
-      );
-
-      rawTarget.dispatchEvent(
-        new DragEv("dragenter", {
-          bubbles: true,
-          cancelable: true,
-          clientX: targetX,
-          clientY: targetY,
-          dataTransfer,
-          view: rawWin as Window & typeof globalThis,
-        }),
-      );
-
-      rawTarget.dispatchEvent(
-        new DragEv("dragover", {
-          bubbles: true,
-          cancelable: true,
-          clientX: targetX,
-          clientY: targetY,
-          dataTransfer,
-          view: rawWin as Window & typeof globalThis,
-        }),
-      );
-
-      rawTarget.dispatchEvent(
-        new DragEv("drop", {
-          bubbles: true,
-          cancelable: true,
-          clientX: targetX,
-          clientY: targetY,
-          dataTransfer,
-          view: rawWin as Window & typeof globalThis,
-        }),
+        new DragEv(
+          "dragstart",
+          makeDragInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: sourceX,
+            clientY: sourceY,
+          }),
+        ),
       );
 
       rawSource.dispatchEvent(
-        new DragEv("dragend", {
-          bubbles: true,
-          cancelable: false,
-          clientX: targetX,
-          clientY: targetY,
-          dataTransfer,
-          view: rawWin as Window & typeof globalThis,
-        }),
+        new DragEv(
+          "drag",
+          makeDragInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: sourceX,
+            clientY: sourceY,
+          }),
+        ),
+      );
+
+      rawTarget.dispatchEvent(
+        new DragEv(
+          "dragenter",
+          makeDragInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: targetX,
+            clientY: targetY,
+          }),
+        ),
+      );
+
+      rawTarget.dispatchEvent(
+        new DragEv(
+          "dragover",
+          makeDragInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: targetX,
+            clientY: targetY,
+          }),
+        ),
+      );
+
+      rawTarget.dispatchEvent(
+        new DragEv(
+          "drop",
+          makeDragInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: targetX,
+            clientY: targetY,
+          }),
+        ),
+      );
+
+      rawSource.dispatchEvent(
+        new DragEv(
+          "dragend",
+          makeDragInit({
+            bubbles: true,
+            cancelable: false,
+            clientX: targetX,
+            clientY: targetY,
+          }),
+        ),
       );
 
       return true;

@@ -120,8 +120,8 @@ export class DOMOperations {
    * Converts HTML to Markdown format, preserving headings, lists, links,
    * and other formatting while excluding hidden elements.
    */
-  getText(): string | null {
-    return this.readOps.getText();
+  getText(includeSelectorMap: boolean = false): string | null {
+    return this.readOps.getText(includeSelectorMap);
   }
 
   // Write/input ops
@@ -250,7 +250,7 @@ export class DOMOperations {
   }
 
 
-  dispatchTextInput(selector: string, text: string): Promise<boolean> {
+  dispatchTextInput(selector: string, text: string): boolean {
     return this.writeOps.dispatchTextInput(selector, text);
   }
 

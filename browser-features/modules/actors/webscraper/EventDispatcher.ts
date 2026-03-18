@@ -45,7 +45,6 @@ export class EventDispatcher {
 
     const PointerEv = rawWin.PointerEvent ?? null;
     const MouseEv = rawWin.MouseEvent ?? globalThis.MouseEvent ?? null;
-    const view = rawWin;
 
     const emit = <T extends Event>(ev: T | null) => {
       if (!ev) return false;
@@ -58,74 +57,30 @@ export class EventDispatcher {
 
     const buttons = button === 0 ? 1 : button === 1 ? 4 : 2;
 
-    emit(
-      PointerEv
-        ? new PointerEv("pointerdown", {
-            bubbles: true,
-            cancelable: true,
-            clientX,
-            clientY,
-            button,
-            buttons,
-            pointerType: "mouse",
-            view,
-          })
-        : null,
-    );
-    emit(
-      MouseEv
-        ? new MouseEv("mousedown", {
-            bubbles: true,
-            cancelable: true,
-            clientX,
-            clientY,
-            button,
-            buttons,
-            view,
-          })
-        : null,
-    );
-    emit(
-      PointerEv
-        ? new PointerEv("pointerup", {
-            bubbles: true,
-            cancelable: true,
-            clientX,
-            clientY,
-            button,
-            buttons,
-            pointerType: "mouse",
-            view,
-          })
-        : null,
-    );
-    emit(
-      MouseEv
-        ? new MouseEv("mouseup", {
-            bubbles: true,
-            cancelable: true,
-            clientX,
-            clientY,
-            button,
-            buttons,
-            view,
-          })
-        : null,
-    );
+    const pointerInit = this.cloneEventInit({
+      bubbles: true,
+      cancelable: true,
+      clientX,
+      clientY,
+      button,
+      buttons,
+      pointerType: "mouse",
+    });
+    const mouseInit = this.cloneEventInit({
+      bubbles: true,
+      cancelable: true,
+      clientX,
+      clientY,
+      button,
+      buttons,
+    });
 
-    const clickOk = emit(
-      MouseEv
-        ? new MouseEv("click", {
-            bubbles: true,
-            cancelable: true,
-            clientX,
-            clientY,
-            button,
-            buttons,
-            view,
-          })
-        : null,
-    );
+    emit(PointerEv ? new PointerEv("pointerdown", pointerInit) : null);
+    emit(MouseEv ? new MouseEv("mousedown", mouseInit) : null);
+    emit(PointerEv ? new PointerEv("pointerup", pointerInit) : null);
+    emit(MouseEv ? new MouseEv("mouseup", mouseInit) : null);
+
+    const clickOk = emit(MouseEv ? new MouseEv("click", mouseInit) : null);
 
     return clickOk ?? false;
   }
@@ -149,8 +104,12 @@ export class EventDispatcher {
       }
 
       try {
-        rawElement.dispatchEvent(new FocusEv("focus", { bubbles: false }));
-        rawElement.dispatchEvent(new FocusEv("focusin", { bubbles: true }));
+        rawElement.dispatchEvent(
+          new FocusEv("focus", this.cloneIntoPageContext({ bubbles: false })),
+        );
+        rawElement.dispatchEvent(
+          new FocusEv("focusin", this.cloneIntoPageContext({ bubbles: true })),
+        );
       } catch {
         // ignore event dispatch errors
       }
@@ -191,6 +150,24 @@ export class EventDispatcher {
   }
 
   /**
+   * Clone an event init dict into page context, excluding non-clonable DOM references.
+   * Properties like `view` (Window) and `dataTransfer` (DataTransfer) cannot be
+   * structured-cloned, so they are stripped before cloning.
+   */
+  cloneEventInit(
+    opts: Record<string, unknown>,
+    exclude: string[] = ["view", "dataTransfer"],
+  ): Record<string, unknown> {
+    const clonable: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(opts)) {
+      if (!exclude.includes(key)) {
+        clonable[key] = value;
+      }
+    }
+    return this.cloneIntoPageContext(clonable) as Record<string, unknown>;
+  }
+
+  /**
    * Dispatch a custom event on an element
    */
   dispatchCustomEvent(
@@ -207,10 +184,10 @@ export class EventDispatcher {
 
       const EventCtor = rawWin.Event ?? globalThis.Event;
 
-      const eventOptions = {
+      const eventOptions = this.cloneIntoPageContext({
         bubbles: options?.bubbles ?? true,
         cancelable: options?.cancelable ?? true,
-      };
+      });
 
       const event = new EventCtor(eventType, eventOptions);
       rawElement.dispatchEvent(event);
@@ -242,7 +219,7 @@ export class EventDispatcher {
         new EventCtor("change", this.cloneIntoPageContext({ bubbles: true })),
       );
       rawElement.dispatchEvent(
-        new FocusEv("blur", this.cloneIntoPageContext({ bubbles: true })),
+        new FocusEv("blur", this.cloneIntoPageContext({ bubbles: false })),
       );
     } catch {
       // ignore event errors

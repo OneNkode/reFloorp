@@ -11,6 +11,7 @@ export type HighlightScrollBehavior = ScrollBehavior | "none";
 
 export interface NRWebScraperMessageData {
   selector?: string;
+  fingerprint?: string;
   value?: string;
   textContent?: string;
   timeout?: number;
@@ -22,6 +23,7 @@ export interface NRWebScraperMessageData {
   checked?: boolean;
   optionValue?: string;
   targetSelector?: string;
+  targetFingerprint?: string;
   innerHTML?: string;
   eventType?: string;
   eventOptions?: { bubbles?: boolean; cancelable?: boolean };

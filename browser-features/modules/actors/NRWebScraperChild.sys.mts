@@ -23,12 +23,61 @@ import type {
 import { DOMOperations } from "./webscraper/DOMOperations.ts";
 import { FormOperations } from "./webscraper/FormOperations.ts";
 import { ScreenshotOperations } from "./webscraper/ScreenshotOperations.ts";
+import { findElementByFingerprint } from "./webscraper/turndown/fingerprint.ts";
 
 export class NRWebScraperChild extends JSWindowActorChild {
   private domOps: DOMOperations | null = null;
   private formOps: FormOperations | null = null;
   private screenshotOps: ScreenshotOperations | null = null;
   private pageHideHandler: (() => void) | null = null;
+
+  /**
+   * Generate a unique CSS selector for an element
+   * Tries id first, then falls back to path-based selector
+   */
+  private generateUniqueSelector(element: Element): string | null {
+    const doc = this.document;
+    if (!doc) return null;
+
+    // Try ID first (most efficient)
+    if (element.id) {
+      return `#${CSS.escape(element.id)}`;
+    }
+
+    // Build path-based selector
+    const path: string[] = [];
+    let current: Element | null = element;
+
+    while (current && current !== doc.documentElement) {
+      let selector = current.tagName.toLowerCase();
+
+      // Add nth-child if needed
+      if (current.parentElement) {
+        const siblings = Array.from(current.parentElement.children);
+        const sameTagSiblings = siblings.filter(
+          (s) => s.tagName.toLowerCase() === selector,
+        );
+        if (sameTagSiblings.length > 1) {
+          const index = sameTagSiblings.indexOf(current) + 1;
+          selector += `:nth-of-type(${index})`;
+        }
+      }
+
+      // Add specific attributes if available (escape values for safety)
+      if (current.hasAttribute("data-testid")) {
+        selector += `[data-testid="${CSS.escape(current.getAttribute("data-testid") ?? "")}"]`;
+      } else if (current.hasAttribute("name")) {
+        selector += `[name="${CSS.escape(current.getAttribute("name") ?? "")}"]`;
+      } else if (current.hasAttribute("type")) {
+        selector += `[type="${CSS.escape(current.getAttribute("type") ?? "")}"]`;
+      }
+
+      path.unshift(selector);
+      current = current.parentElement;
+    }
+
+    return path.join(" > ");
+  }
 
   /**
    * Lazily create and return the context object
@@ -143,7 +192,7 @@ export class NRWebScraperChild extends JSWindowActorChild {
         return domOps.waitForReady(to);
       }
       case "WebScraper:GetText":
-        return domOps.getText();
+        return domOps.getText(message.data?.includeSelectorMap ?? false);
       case "WebScraper:GetHTML":
         return domOps.getHTML();
       case "WebScraper:GetElements":
@@ -368,7 +417,7 @@ export class NRWebScraperChild extends JSWindowActorChild {
           );
         }
         break;
-      case "WebScraper:DispatchTextInput": {
+     case "WebScraper:DispatchTextInput": {
         const text = (
           message.data as (NRWebScraperMessageData & { text?: string }) | undefined
         )?.text;
@@ -377,6 +426,19 @@ export class NRWebScraperChild extends JSWindowActorChild {
         }
         break;
       }
+      case "WebScraper:ResolveFingerprint":
+        if (message.data?.fingerprint && this.document?.body) {
+          const element = findElementByFingerprint(
+            this.document.body,
+            message.data.fingerprint,
+          );
+          if (element) {
+            // Generate a unique CSS selector for this element
+            return this.generateUniqueSelector(element);
+          }
+          return null;
+        }
+        break;
 
     }
     return null;

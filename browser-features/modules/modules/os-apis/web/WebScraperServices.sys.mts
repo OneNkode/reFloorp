@@ -14,6 +14,7 @@
 
 import type { WaitForElementState } from "../../os-server/shared/types.ts";
 import { GlobalHTTPTracker } from "./shared/GlobalHTTPTracker.sys.mts";
+import { AutomationConstants } from "../../os-server/shared/http-tracker.sys.mts";
 import { PROGRESS_LISTENERS } from "./shared/ProgressListeners.sys.mts";
 
 const { E10SUtils } = ChromeUtils.importESModule(
@@ -47,8 +48,6 @@ class webScraper {
   private _instanceId!: string;
   private _windowlessBrowser!: nsIWindowlessBrowser;
 
-  private readonly _defaultActionDelay = 500;
-
   /**
    * Try to get NRWebScraper actor with small retries to avoid race after navigation
    */
@@ -72,14 +71,6 @@ class webScraper {
   /**
    * Delays execution for user interaction visibility
    */
-  private async _delayForUser(delay?: number): Promise<void> {
-    const ms = delay ?? this._defaultActionDelay;
-    if (ms <= 0) {
-      return;
-    }
-    await new Promise<void>((resolve) => setTimeout(resolve, ms));
-  }
-
   constructor() {
     this._initializeWindowlessBrowser();
   }
@@ -123,7 +114,6 @@ class webScraper {
     this._instanceId = await crypto.randomUUID();
     this._browserInstances.set(this._instanceId, browser);
     SCRAPER_ACTOR_SETS.add(browser);
-    await this._delayForUser();
     return this._instanceId;
   }
 
@@ -140,6 +130,11 @@ class webScraper {
   public destroyInstance(instanceId: string): void {
     const browser = this._browserInstances.get(instanceId);
     if (browser) {
+      // Clean up GlobalHTTPTracker for this instance's browsing context
+      const bcid = browser.browsingContext?.id;
+      if (bcid !== undefined && bcid !== null) {
+        GlobalHTTPTracker.clearForContext(bcid);
+      }
       browser.remove();
       this._browserInstances.delete(instanceId);
       SCRAPER_ACTOR_SETS.delete(browser);
@@ -185,7 +180,6 @@ class webScraper {
 
     const uri = Services.io.newURI(url);
 
-    await this._delayForUser();
     if (typeof browser.loadURI === "function") {
       browser.loadURI(uri, loadURIOptions);
     } else {
@@ -289,7 +283,6 @@ class webScraper {
     } catch {
       // ignore
     }
-    await this._delayForUser();
   }
 
   public getURI(instanceId: string): Promise<string | null> {
@@ -355,7 +348,10 @@ class webScraper {
    * @returns Promise<string | null> - The visible text content, or null if unavailable
    * @throws Error - If the browser instance is not found
    */
-  public async getText(instanceId: string): Promise<string | null> {
+  public async getText(
+    instanceId: string,
+    includeSelectorMap: boolean = false,
+  ): Promise<string | null> {
     const browser = this._browserInstances.get(instanceId);
     if (!browser) {
       throw new Error(`Browser not found for instance ${instanceId}`);
@@ -364,7 +360,9 @@ class webScraper {
     try {
       const actor = await this._getActorForBrowser(browser);
       if (!actor) return null;
-      return (await actor.sendQuery("WebScraper:GetText")) as string | null;
+      return (await actor.sendQuery("WebScraper:GetText", {
+        includeSelectorMap,
+      })) as string | null;
     } catch (e) {
       console.error("Error getting text:", e);
       return null;
@@ -521,6 +519,58 @@ class webScraper {
   }
 
   /**
+   * Resolves an element fingerprint to a CSS selector.
+   *
+   * This method enables LLMs to use fingerprints from Markdown output
+   * to interact with elements. Fingerprints are stable djb2 hashes
+   * of element paths in the DOM.
+   *
+   * @param instanceId - The unique identifier of the browser instance
+   * @param fingerprint - Element fingerprint (8 or 16 lowercase alphanumeric chars)
+   * @returns Promise<string | null> - CSS selector for the element, or null if not found
+   * @throws Error - If the browser instance is not found
+   */
+  public async resolveFingerprint(
+    instanceId: string,
+    fingerprint: string,
+  ): Promise<string | null> {
+    const browser = this._browserInstances.get(instanceId);
+    if (!browser) {
+      throw new Error(`Browser not found for instance ${instanceId}`);
+    }
+
+    const actor = await this._getActorForBrowser(browser);
+    if (!actor) return null;
+    return (await actor.sendQuery("WebScraper:ResolveFingerprint", {
+      fingerprint,
+    })) as string | null;
+  }
+
+  /**
+   * Clears all visual effects (highlights, overlays, info panels).
+   * Useful before operations to get a clean DOM state.
+   *
+   * @param instanceId - The unique identifier of the browser instance
+   * @returns Promise<boolean> - True if effects were cleared successfully
+   * @throws Error - If the browser instance is not found
+   */
+  public async clearEffects(instanceId: string): Promise<boolean> {
+    try {
+      const browser = this._browserInstances.get(instanceId);
+      if (!browser) {
+        throw new Error(`Browser not found for instance ${instanceId}`);
+      }
+
+      const actor = await this._getActorForBrowser(browser);
+      if (!actor) return false;
+      await actor.sendQuery("WebScraper:ClearEffects");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Clicks on an element in a browser instance
    *
    * This method:
@@ -548,7 +598,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:ClickElement", {
       selector,
     })) as boolean;
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -743,7 +792,6 @@ class webScraper {
       typingMode: options.typingMode,
       typingDelayMs: options.typingDelayMs,
     })) as boolean;
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -769,7 +817,6 @@ class webScraper {
       typingMode: options.typingMode,
       typingDelayMs: options.typingDelayMs,
     })) as boolean;
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -787,7 +834,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:PressKey", {
       key,
     })) as boolean;
-    await this._delayForUser(500);
     return result;
   }
 
@@ -810,7 +856,6 @@ class webScraper {
       selector,
       filePath,
     })) as boolean;
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -926,7 +971,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:ClearInput", {
       selector,
     })) as boolean;
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -944,7 +988,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:Submit", {
       selector,
     })) as boolean;
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -972,7 +1015,6 @@ class webScraper {
       selector,
       optionValue: value,
     })) as boolean;
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1000,7 +1042,6 @@ class webScraper {
       selector,
       checked,
     })) as boolean;
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1025,7 +1066,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:HoverElement", {
       selector,
     })) as boolean;
-    await this._delayForUser(2000);
     return result;
   }
 
@@ -1046,7 +1086,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:ScrollToElement", {
       selector,
     })) as boolean;
-    await this._delayForUser(1000);
     return result;
   }
 
@@ -1081,7 +1120,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:DoubleClick", {
       selector,
     })) as boolean;
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1102,7 +1140,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:RightClick", {
       selector,
     })) as boolean;
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1123,7 +1160,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:Focus", {
       selector,
     })) as boolean;
-    await this._delayForUser(1000);
     return result;
   }
 
@@ -1146,7 +1182,6 @@ class webScraper {
       selector: sourceSelector,
       targetSelector,
     })) as boolean;
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1423,10 +1458,11 @@ class webScraper {
 
   /**
    * Waits for network to become idle (no pending requests)
+   * Uses GlobalHTTPTracker for network state tracking (no duplicate observers)
    */
   public waitForNetworkIdle(
     instanceId: string,
-    timeout: number = 5000,
+    timeout: number = AutomationConstants.NETWORK_IDLE_TIMEOUT_MS,
   ): Promise<boolean | null> {
     const browser = this._browserInstances.get(instanceId);
     if (!browser) {
@@ -1438,105 +1474,50 @@ class webScraper {
       return Promise.resolve(null);
     }
 
+    const idleThreshold = AutomationConstants.NETWORK_IDLE_THRESHOLD_MS;
+
     return new Promise((resolve) => {
-      const idleThreshold = 500;
       const state = {
-        idleTimer: null as ReturnType<typeof setTimeout> | null,
+        pollTimer: null as ReturnType<typeof setTimeout> | null,
         resolved: false,
         startTime: Date.now(),
       };
 
-      console.log(
-        `[WebScraper] Waiting for network idle on BCID: ${bcid}, Timeout: ${timeout}ms`,
-      );
-
-      const resetIdleTimer = () => {
-        if (state.idleTimer) {
-          clearTimeout(state.idleTimer);
-        }
-        state.idleTimer = setTimeout(() => {
-          const activeCount = GlobalHTTPTracker.getActiveCount(bcid);
-          const elapsed = Date.now() - state.startTime;
-          console.log(
-            `[WebScraper] Idle Check - Active Count: ${activeCount}, Elapsed: ${elapsed}ms`,
-          );
-
-          if (!state.resolved && activeCount === 0) {
-            console.log(`[WebScraper] Network reached idle for BCID ${bcid}.`);
-            state.resolved = true;
-            cleanup();
-            resolve(true);
-          } else if (activeCount > 0) {
-            // Still active, check again later
-            // Exponential backoff or just plain reset? Keep it simple for now.
-            if (!state.resolved) {
-              resetIdleTimer();
-            }
-          }
-        }, idleThreshold);
-      };
-
       const cleanup = () => {
-        console.log("[WebScraper] Cleaning up waitForNetworkIdle tracking...");
-        if (state.idleTimer) {
-          clearTimeout(state.idleTimer);
-        }
-        try {
-          Services.obs.removeObserver(observer, "http-on-opening-request");
-          Services.obs.removeObserver(observer, "http-on-stop-request");
-        } catch {
-          // Ignore
+        if (state.pollTimer) {
+          clearTimeout(state.pollTimer);
+          state.pollTimer = null;
         }
       };
 
-      // We still use a local observer to "ping" the idle check as soon as a request stops
-      const observer = {
-        observe(subject: nsISupports, topic: string, _data: string | null) {
-          try {
-            // deno-lint-ignore no-explicit-any
-            const channel = (subject as any).QueryInterface(Ci.nsIHttpChannel);
-            if (channel.loadInfo?.browsingContextID === bcid) {
-              console.log(
-                `[WebScraper] Observed ${topic} for BCID ${bcid} - URI: ${channel.URI?.spec}`,
-              );
-              if (topic === "http-on-opening-request") {
-                if (state.idleTimer) {
-                  clearTimeout(state.idleTimer);
-                  state.idleTimer = null;
-                }
-              } else if (topic === "http-on-stop-request") {
-                resetIdleTimer();
-              }
-            }
-          } catch {
-            // Ignore
-          }
-        },
-      };
+      const poll = () => {
+        if (state.resolved) return;
 
-      try {
-        Services.obs.addObserver(observer, "http-on-opening-request");
-        Services.obs.addObserver(observer, "http-on-stop-request");
-      } catch (e) {
-        console.error("WebScraper: Error adding local observer:", e);
-      }
+        const activeCount = GlobalHTTPTracker.getActiveCount(bcid);
+        const elapsed = Date.now() - state.startTime;
 
-      // Initial check
-      resetIdleTimer();
-
-      // Overall timeout
-      setTimeout(() => {
-        if (!state.resolved) {
-          console.log("[WebScraper] waitForNetworkIdle timed out.");
-          const finalCount = GlobalHTTPTracker.getActiveCount(bcid);
+        if (activeCount === 0) {
           console.log(
-            `[WebScraper] Final Active Count at timeout: ${finalCount}`,
+            `[WebScraper] Network idle for BCID ${bcid} after ${elapsed}ms`,
+          );
+          state.resolved = true;
+          cleanup();
+          resolve(true);
+        } else if (elapsed >= timeout) {
+          console.log(
+            `[WebScraper] waitForNetworkIdle timed out. Active: ${activeCount}`,
           );
           state.resolved = true;
           cleanup();
           resolve(false);
+        } else {
+          // Continue polling
+          state.pollTimer = setTimeout(poll, idleThreshold);
         }
-      }, timeout);
+      };
+
+      // Start polling
+      poll();
     });
   }
 
@@ -1559,7 +1540,6 @@ class webScraper {
       selector,
       innerHTML: html,
     })) as boolean;
-    await this._delayForUser(2000);
     return result;
   }
 
@@ -1582,7 +1562,6 @@ class webScraper {
       selector,
       textContent: text,
     })) as boolean;
-    await this._delayForUser(2000);
     return result;
   }
 
@@ -1607,7 +1586,6 @@ class webScraper {
       eventType,
       eventOptions: options,
     })) as boolean;
-    await this._delayForUser(1000);
     return result;
   }
 
@@ -1637,7 +1615,6 @@ class webScraper {
       selector,
       text,
     })) as boolean;
-    await this._delayForUser(1000);
     return result;
   }
 }

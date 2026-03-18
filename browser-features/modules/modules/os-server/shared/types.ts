@@ -21,6 +21,47 @@ export type ScreenshotRect = {
   height?: number;
 };
 
+// =============================================================================
+// Common API Response Types
+// =============================================================================
+
+/**
+ * Standard response for action endpoints (click, hover, submit, etc.)
+ * Returns ok=true on success, or error message on failure.
+ */
+export type ActionResponse = { ok?: boolean; error?: string };
+
+/**
+ * Response for data retrieval endpoints
+ * Returns the requested data or error message.
+ */
+export type DataResponse<T> = { data?: T; error?: string };
+
+/**
+ * Response for text content endpoints
+ */
+export type TextResponse = { text?: string; error?: string };
+
+/**
+ * Response for element endpoints
+ */
+export type ElementResponse = { element?: string; error?: string };
+
+/**
+ * Response for value endpoints
+ */
+export type ValueResponse = { value?: string | null; error?: string };
+
+/**
+ * Response for boolean state endpoints (isVisible, isEnabled)
+ */
+export type BooleanResponse = { value?: boolean; error?: string };
+
+/**
+ * Response for screenshot endpoints
+ */
+export type ScreenshotResponse = { image?: string; error?: string };
+
 /**
  * Cookie data type for get/set cookie operations
  */
@@ -40,13 +81,16 @@ export interface CookieData {
  * Implemented by both WebScraper and TabManager services
  */
 export interface BrowserAutomationService {
+  // Fingerprint resolution (converts fingerprint to CSS selector)
+  resolveFingerprint?(instanceId: string, fingerprint: string): Promise<string | null>;
+
   // Navigation
   navigate(instanceId: string, url: string): Promise<void>;
   getURI(instanceId: string): Promise<string | null>;
 
   // Content retrieval
   getHTML(instanceId: string): Promise<string | null>;
-  getText(instanceId: string): Promise<string | null>;
+  getText(instanceId: string, includeSelectorMap?: boolean): Promise<string | null>;
   getPageTitle(instanceId: string): Promise<string | null>;
 
   // Element queries
@@ -133,4 +177,7 @@ export interface BrowserAutomationService {
 
   // Drag and drop
   dragAndDrop(instanceId: string, sourceSelector: string, targetSelector: string): Promise<boolean | null>;
+
+  // Visual effects
+  clearEffects?(instanceId: string): Promise<boolean>;
 }

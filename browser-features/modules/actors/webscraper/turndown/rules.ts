@@ -36,6 +36,10 @@ export interface TurndownOptions {
   linkReferenceStyle: "full" | "collapsed" | "shortcut";
   br: string;
   preformattedCode: boolean;
+  /** Enable element fingerprinting in output (default: false) */
+  enableFingerprints?: boolean;
+  /** Append selector map at the end of output (default: false) */
+  fingerprintSelectorMap?: boolean;
   blankReplacement: (content: string, node: ExtendedNode) => string;
   keepReplacement: (content: string, node: ExtendedNode) => string;
   defaultReplacement: (content: string, node: ExtendedNode) => string;

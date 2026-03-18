@@ -7,6 +7,9 @@
  *
  * This module provides common route registration for operations that are
  * identical between WebScraper and TabManager services.
+ *
+ * Fingerprint-based targeting is preferred, with selector fallback kept for
+ * backward compatibility with existing clients.
  */
 
 import type {
@@ -17,7 +20,126 @@ import type {
   ErrorResponse,
   OkResponse,
 } from "../_os-plugin/api-spec/types.ts";
-import type { BrowserAutomationService, ScreenshotRect } from "./types.ts";
+import type {
+  BrowserAutomationService,
+  ElementResponse,
+  ScreenshotRect,
+  TextResponse,
+  ValueResponse,
+  WaitForElementState,
+} from "./types.ts";
+
+const FINGERPRINT_REGEX = /^[a-z0-9]{8}([a-z0-9]{8})?$/;
+const MAX_TIMEOUT_MS = 60_000;
+const ALLOWED_URL_SCHEMES = new Set(["http:", "https:"]);
+const ALLOWED_EXACT_URLS = new Set(["about:blank"]);
+
+/**
+ * Clamp a timeout value to a safe range [0, MAX_TIMEOUT_MS].
+ */
+function clampTimeout(value: number | undefined, fallback: number): number {
+  const v = typeof value === "number" ? value : fallback;
+  return Math.min(Math.max(v, 0), MAX_TIMEOUT_MS);
+}
+
+/**
+ * Wraps a route handler with try/catch to prevent service exceptions
+ * from propagating as unhandled rejections.
+ */
+function safeRoute<F extends (...args: never[]) => Promise<unknown>>(handler: F): F {
+  return (async (...args: unknown[]) => {
+    try {
+      return await handler(...(args as Parameters<F>));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("Route handler error:", msg);
+      return { status: 500, body: { error: "Internal server error" } };
+    }
+  }) as unknown as F;
+}
+
+type FingerprintResult =
+  | { ok: true; selector: string }
+  | { ok: false; error: { status: number; body: { error: string } } };
+
+/**
+ * Resolves a CSS selector from an element fingerprint.
+ * Validates format and resolves via the service's fingerprint map.
+ *
+ * @param service - The browser automation service
+ * @param instanceId - The instance ID
+ * @param fingerprint - Element fingerprint (8 or 16 lowercase alphanumeric chars)
+ * @returns Resolution result with selector or error
+ */
+async function resolveFingerprint(
+  service: BrowserAutomationService,
+  instanceId: string,
+  fingerprint: string | null | undefined,
+): Promise<FingerprintResult> {
+  if (!fingerprint) {
+    return {
+      ok: false,
+      error: { status: 400, body: { error: "fingerprint required" } },
+    };
+  }
+  if (!FINGERPRINT_REGEX.test(fingerprint)) {
+    return {
+      ok: false,
+      error: {
+        status: 400,
+        body: {
+          error:
+            "Invalid fingerprint format. Expected 8 or 16 lowercase alphanumeric characters.",
+        },
+      },
+    };
+  }
+  if (!service.resolveFingerprint) {
+    return {
+      ok: false,
+      error: {
+        status: 501,
+        body: { error: "fingerprint resolution not supported" },
+      },
+    };
+  }
+  const selector = await service.resolveFingerprint(instanceId, fingerprint);
+  if (!selector) {
+    return {
+      ok: false,
+      error: { status: 404, body: { error: "fingerprint not found" } },
+    };
+  }
+  return { ok: true, selector };
+}
+
+/**
+ * Resolves a CSS selector from either direct selector input or fingerprint.
+ * Priority: selector > fingerprint
+ */
+async function resolveSelectorOrFingerprint(
+  service: BrowserAutomationService,
+  instanceId: string,
+  selector: string | null | undefined,
+  fingerprint: string | null | undefined,
+): Promise<FingerprintResult> {
+  const normalizedSelector = selector?.trim();
+  if (normalizedSelector) {
+    return { ok: true, selector: normalizedSelector };
+  }
+
+  if (!fingerprint) {
+    return {
+      ok: false,
+      error: {
+        status: 400,
+        body: { error: "selector or fingerprint required" },
+      },
+    };
+  }
+
+  return await resolveFingerprint(service, instanceId, fingerprint);
+}
 
 /**
  * Registers common automation routes that are shared between Scraper and Tab services.
@@ -34,298 +156,722 @@ export function registerCommonAutomationRoutes(
     includeGetElement?: boolean;
   } = {},
 ): void {
-  // Navigate to a URL
+  // Navigate to a URL (only http/https allowed)
   ns.post<{ url: string }, OkResponse | ErrorResponse>(
     "/instances/:id/navigate",
-    async (ctx: RouterContext<{ url: string }>) => {
+    safeRoute(async (ctx: RouterContext<{ url: string }>) => {
       const json = ctx.json();
       if (!json?.url) {
         return { status: 400, body: { error: "url required" } };
       }
+      if (!ALLOWED_EXACT_URLS.has(json.url)) {
+        try {
+          const parsed = new URL(json.url);
+          if (!ALLOWED_URL_SCHEMES.has(parsed.protocol)) {
+            return {
+              status: 400,
+              body: { error: `URL scheme '${parsed.protocol}' not allowed. Only http/https are permitted.` },
+            };
+          }
+        } catch {
+          return { status: 400, body: { error: "Invalid URL" } };
+        }
+      }
       const service = getService();
       await service.navigate(ctx.params.id, json.url);
       return { status: 200, body: { ok: true } };
-    },
+    }),
   );
 
   // Get current URI
-  ns.get("/instances/:id/uri", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/uri", safeRoute(async (ctx: RouterContext) => {
     const service = getService();
     const uri = await service.getURI(ctx.params.id);
     return { status: 200, body: uri != null ? { uri } : { uri: null } };
-  });
+  }));
 
   // Get page HTML
-  ns.get("/instances/:id/html", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/html", safeRoute(async (ctx: RouterContext) => {
     const service = getService();
     const html = await service.getHTML(ctx.params.id);
     return { status: 200, body: { html } };
-  });
+  }));
 
-  // Get visible text content (as Markdown)
-  ns.get("/instances/:id/text", async (ctx: RouterContext) => {
+  // Get visible text content (as Markdown with element fingerprints)
+  ns.get("/instances/:id/text", safeRoute(async (ctx: RouterContext) => {
+    const includeSelectorMap =
+      ctx.searchParams.get("includeSelectorMap") === "true";
     const service = getService();
-    const text = await service.getText(ctx.params.id);
-    return { status: 200, body: { text } };
-  });
+    const text = await service.getText(ctx.params.id, includeSelectorMap);
+    return { status: 200, body: text != null ? { text } : {} };
+  }));
 
-  // Get element by selector (optional - only Tab exposes this)
+  // Get element by selector or fingerprint (optional - only Tab exposes this)
   if (options.includeGetElement) {
-    ns.get("/instances/:id/element", async (ctx: RouterContext) => {
-      const sel = ctx.searchParams.get("selector") ?? "";
-      const service = getService();
-      if (!service.getElement) {
-        return { status: 200, body: { element: null } };
-      }
-      const element = await service.getElement(ctx.params.id, sel);
-      return { status: 200, body: { element } };
-    });
+    ns.get<unknown, ElementResponse>(
+      "/instances/:id/element",
+      safeRoute(async (ctx: RouterContext) => {
+        const selector = ctx.searchParams.get("selector");
+        const fingerprint = ctx.searchParams.get("fingerprint");
+        const service = getService();
+        const resolved = await resolveSelectorOrFingerprint(
+          service,
+          ctx.params.id,
+          selector,
+          fingerprint,
+        );
+        if (!resolved.ok) return resolved.error;
+        if (!service.getElement) {
+          return { status: 200, body: {} };
+        }
+        const element = await service.getElement(
+          ctx.params.id,
+          resolved.selector,
+        );
+        return { status: 200, body: element != null ? { element } : {} };
+      }),
+    );
   }
 
-  // Get element text by selector
-  ns.get("/instances/:id/elementText", async (ctx: RouterContext) => {
-    const sel = ctx.searchParams.get("selector") ?? "";
-    const service = getService();
-    const text = await service.getElementText(ctx.params.id, sel);
-    return { status: 200, body: { text } };
-  });
+  // Get element text by selector or fingerprint
+  ns.get<unknown, TextResponse>(
+    "/instances/:id/elementText",
+    safeRoute(async (ctx: RouterContext) => {
+      const selector = ctx.searchParams.get("selector");
+      const fingerprint = ctx.searchParams.get("fingerprint");
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        selector,
+        fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      const text = await service.getElementText(
+        ctx.params.id,
+        resolved.selector,
+      );
+      return { status: 200, body: text != null ? { text } : {} };
+    }),
+  );
 
-  // Get all matching elements (outerHTML array)
-  ns.get("/instances/:id/elements", async (ctx: RouterContext) => {
-    const sel = ctx.searchParams.get("selector") ?? "";
-    const service = getService();
-    const elems = await service.getElements(ctx.params.id, sel);
-    return { status: 200, body: { elements: elems } };
-  });
+  // Get all matching elements (outerHTML array) by selector or fingerprint
+  ns.get<unknown, { elements?: string[]; error?: string }>(
+    "/instances/:id/elements",
+    safeRoute(async (ctx: RouterContext) => {
+      const selector = ctx.searchParams.get("selector");
+      const fingerprint = ctx.searchParams.get("fingerprint");
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        selector,
+        fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      const elems = await service.getElements(ctx.params.id, resolved.selector);
+      return { status: 200, body: { elements: elems } };
+    }),
+  );
 
   // Get element by text content
-  ns.get("/instances/:id/elementByText", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/elementByText", safeRoute(async (ctx: RouterContext) => {
     const txt = ctx.searchParams.get("text") ?? "";
+    if (!txt) {
+      return { status: 400, body: { error: "text parameter required" } };
+    }
     const service = getService();
     const elem = await service.getElementByText(ctx.params.id, txt);
     return { status: 200, body: { element: elem } };
-  });
+  }));
 
-  // Get element text content by selector
-  ns.get("/instances/:id/elementTextContent", async (ctx: RouterContext) => {
-    const sel = ctx.searchParams.get("selector") ?? "";
-    const service = getService();
-    const text = await service.getElementTextContent(ctx.params.id, sel);
-    return { status: 200, body: { text } };
-  });
+  // Get element text content by selector or fingerprint
+  ns.get<unknown, TextResponse>(
+    "/instances/:id/elementTextContent",
+    safeRoute(async (ctx: RouterContext) => {
+      const selector = ctx.searchParams.get("selector");
+      const fingerprint = ctx.searchParams.get("fingerprint");
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        selector,
+        fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      const text = await service.getElementTextContent(
+        ctx.params.id,
+        resolved.selector,
+      );
+      return { status: 200, body: text != null ? { text } : {} };
+    }),
+  );
 
-  // Click element
-  ns.post("/instances/:id/click", async (ctx: RouterContext) => {
-    const json = ctx.json() as { selector?: string } | null;
-    const sel = json?.selector ?? "";
-    const service = getService();
-    const okClicked = await service.clickElement(ctx.params.id, sel);
-    return { status: 200, body: { ok: okClicked ?? false } };
-  });
+  // Resolve fingerprint to CSS selector
+  ns.get<{ selector?: string; error?: string }>(
+    "/instances/:id/resolveFingerprint",
+    safeRoute(async (ctx: RouterContext) => {
+      const fingerprint = ctx.searchParams.get("fingerprint") ?? "";
 
-  // Wait for element to appear
-  ns.post("/instances/:id/waitForElement", async (ctx: RouterContext) => {
+      // Validate fingerprint format (8 or 16 alphanumeric lowercase chars)
+      if (!fingerprint || !FINGERPRINT_REGEX.test(fingerprint)) {
+        return {
+          status: 400,
+          body: {
+            error:
+              "Invalid fingerprint format. Expected 8 or 16 lowercase alphanumeric characters.",
+          },
+        };
+      }
+
+      const service = getService();
+      if (!service.resolveFingerprint) {
+        return {
+          status: 501,
+          body: { error: "fingerprint resolution not supported" },
+        };
+      }
+      const selector = await service.resolveFingerprint(
+        ctx.params.id,
+        fingerprint,
+      );
+      if (selector == null) {
+        return { status: 404, body: { error: "fingerprint not found" } };
+      }
+      return { status: 200, body: { selector } };
+    }),
+  );
+
+  // Clear all visual effects (highlights, overlays, info panels)
+  ns.post<unknown, { ok?: boolean; error?: string }>(
+    "/instances/:id/clearEffects",
+    safeRoute(async (ctx: RouterContext) => {
+      const service = getService();
+      if (!service.clearEffects) {
+        return { status: 501, body: { error: "clearEffects not supported" } };
+      }
+      const ok = await service.clearEffects(ctx.params.id);
+      return { status: 200, body: { ok } };
+    }),
+  );
+
+  // Click element (selector or fingerprint)
+  ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
+    "/instances/:id/click",
+    safeRoute(async (ctx: RouterContext) => {
+      const json = ctx.json() as {
+        selector?: string;
+        fingerprint?: string;
+      } | null;
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        json?.selector,
+        json?.fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      const okClicked = await service.clickElement(
+        ctx.params.id,
+        resolved.selector,
+      );
+      return { status: 200, body: { ok: okClicked ?? false } };
+    }),
+  );
+
+  // Wait for element to appear (selector or fingerprint)
+  ns.post<
+    { fingerprint: string; timeout?: number; state?: WaitForElementState },
+    { ok: boolean; found: boolean } | ErrorResponse
+  >("/instances/:id/waitForElement", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       selector?: string;
+      fingerprint: string;
       timeout?: number;
       state?: WaitForElementState;
     } | null;
-    const sel = json?.selector ?? "";
-    const to = json?.timeout ?? 5000;
     const state = json?.state ?? "attached";
+
+    // Fingerprint resolution requires the element to already exist in the DOM.
+    // Waiting for "attached" state with a fingerprint is contradictory since
+    // we cannot resolve a fingerprint for an element that doesn't exist yet.
+    if (!json?.selector && json?.fingerprint && state === "attached") {
+      return {
+        status: 400,
+        body: {
+          error:
+            'waitForElement with fingerprint does not support state "attached". ' +
+            "Fingerprints can only be resolved for elements already in the DOM. " +
+            'Use a CSS selector for "attached" state, or use "visible"/"hidden"/"detached" with a fingerprint.',
+        },
+      };
+    }
+
     const service = getService();
-    const found = await service.waitForElement(ctx.params.id, sel, to, state);
-    return { status: 200, body: { ok: found ?? false } };
-  });
+    const resolved = await resolveSelectorOrFingerprint(
+      service,
+      ctx.params.id,
+      json?.selector,
+      json?.fingerprint,
+    );
+    if (!resolved.ok) return resolved.error;
+    const to = clampTimeout(json?.timeout, 5000);
+    const found = await service.waitForElement(
+      ctx.params.id,
+      resolved.selector,
+      to,
+      state,
+    );
+    const result = found ?? false;
+    return { status: 200, body: { ok: result, found: result } };
+  }));
 
   // Take viewport screenshot
-  ns.get("/instances/:id/screenshot", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/screenshot", safeRoute(async (ctx: RouterContext) => {
     const service = getService();
     const image = await service.takeScreenshot(ctx.params.id);
     return { status: 200, body: { image } };
-  });
+  }));
 
-  // Take element screenshot
-  ns.get("/instances/:id/elementScreenshot", async (ctx: RouterContext) => {
-    const sel = ctx.searchParams.get("selector") ?? "";
-    const service = getService();
-    const image = await service.takeElementScreenshot(ctx.params.id, sel);
-    return { status: 200, body: { image } };
-  });
+  // Take element screenshot by selector or fingerprint
+  ns.get<unknown, { image?: string; error?: string }>(
+    "/instances/:id/elementScreenshot",
+    safeRoute(async (ctx: RouterContext) => {
+      const selector = ctx.searchParams.get("selector");
+      const fingerprint = ctx.searchParams.get("fingerprint");
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        selector,
+        fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      const image = await service.takeElementScreenshot(
+        ctx.params.id,
+        resolved.selector,
+      );
+      return { status: 200, body: image != null ? { image } : {} };
+    }),
+  );
 
   // Take full page screenshot
-  ns.get("/instances/:id/fullPageScreenshot", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/fullPageScreenshot", safeRoute(async (ctx: RouterContext) => {
     const service = getService();
     const image = await service.takeFullPageScreenshot(ctx.params.id);
     return { status: 200, body: { image } };
-  });
+  }));
 
   // Take region screenshot
-  ns.post("/instances/:id/regionScreenshot", async (ctx: RouterContext) => {
+  ns.post("/instances/:id/regionScreenshot", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as { rect?: ScreenshotRect } | null;
     const service = getService();
     const image = await service.takeRegionScreenshot(ctx.params.id, json?.rect);
     return { status: 200, body: { image } };
-  });
+  }));
 
-  // Fill form fields
-  ns.post("/instances/:id/fillForm", async (ctx: RouterContext) => {
+  // Fill form fields (selector keys, or fingerprint keys when resolvable)
+  ns.post<
+    {
+      formData?: Record<string, string>;
+      typingMode?: boolean;
+      typingDelayMs?: number;
+    },
+    OkResponse | ErrorResponse
+  >("/instances/:id/fillForm", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
-      formData?: { [selector: string]: string };
+      formData?: Record<string, string>;
       typingMode?: boolean;
       typingDelayMs?: number;
     } | null;
+
     const service = getService();
-    const okFilled = await service.fillForm(
+    const formData = json?.formData ?? {};
+
+    // Resolve fingerprint-like keys to selectors when possible.
+    // Fallback to selector key for backward compatibility.
+    const resolvedFormData: Record<string, string> = {};
+    for (const [selectorOrFingerprint, value] of Object.entries(formData)) {
+      const key = selectorOrFingerprint.trim();
+      if (!key) {
+        return {
+          status: 400,
+          body: { error: "selector or fingerprint required" },
+        };
+      }
+
+      if (FINGERPRINT_REGEX.test(key)) {
+        if (!service.resolveFingerprint) {
+          return { status: 501, body: { error: "fingerprint resolution not supported" } };
+        }
+        const resolvedSelector = await service.resolveFingerprint(
+          ctx.params.id,
+          key,
+        );
+        if (!resolvedSelector) {
+          return { status: 404, body: { error: `Fingerprint '${key}' not found` } };
+        }
+        resolvedFormData[resolvedSelector] = value;
+        continue;
+      }
+
+      resolvedFormData[key] = value;
+    }
+
+    const okFilled = await service.fillForm(ctx.params.id, resolvedFormData, {
+      typingMode: json?.typingMode,
+      typingDelayMs: json?.typingDelayMs,
+    });
+    return { status: 200, body: { ok: okFilled ?? false } };
+  }));
+
+  // Get input value by selector or fingerprint
+  ns.get<unknown, ValueResponse>(
+    "/instances/:id/value",
+    safeRoute(async (ctx: RouterContext) => {
+      const selector = ctx.searchParams.get("selector");
+      const fingerprint = ctx.searchParams.get("fingerprint");
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        selector,
+        fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      const value = await service.getValue(ctx.params.id, resolved.selector);
+      return { status: 200, body: value != null ? { value } : {} };
+    }),
+  );
+
+  // Submit form (selector or fingerprint)
+  ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
+    "/instances/:id/submit",
+    safeRoute(async (ctx: RouterContext) => {
+      const json = ctx.json() as {
+        selector?: string;
+        fingerprint?: string;
+      } | null;
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        json?.selector,
+        json?.fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      const submitted = await service.submit(ctx.params.id, resolved.selector);
+      return { status: 200, body: { ok: submitted ?? false } };
+    }),
+  );
+
+  // Clear input field (selector or fingerprint)
+  ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
+    "/instances/:id/clearInput",
+    safeRoute(async (ctx: RouterContext) => {
+      const json = ctx.json() as {
+        selector?: string;
+        fingerprint?: string;
+      } | null;
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        json?.selector,
+        json?.fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      const cleared = await service.clearInput(
+        ctx.params.id,
+        resolved.selector,
+      );
+      return { status: 200, body: { ok: cleared ?? false } };
+    }),
+  );
+
+  // Get element attribute by selector or fingerprint
+  ns.get<unknown, { value?: string | null; error?: string }>(
+    "/instances/:id/attribute",
+    safeRoute(async (ctx: RouterContext) => {
+      const attr = ctx.searchParams.get("name") ?? "";
+      if (!attr) {
+        return { status: 400, body: { error: "name parameter required" } };
+      }
+      const selector = ctx.searchParams.get("selector");
+      const fingerprint = ctx.searchParams.get("fingerprint");
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        selector,
+        fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      const value = await service.getAttribute(
+        ctx.params.id,
+        resolved.selector,
+        attr,
+      );
+      return { status: 200, body: value != null ? { value } : { value: null } };
+    }),
+  );
+
+  // Check if element is visible by selector or fingerprint
+  ns.get<unknown, { visible?: boolean; error?: string }>(
+    "/instances/:id/isVisible",
+    safeRoute(async (ctx: RouterContext) => {
+      const selector = ctx.searchParams.get("selector");
+      const fingerprint = ctx.searchParams.get("fingerprint");
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        selector,
+        fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      const visible = await service.isVisible(ctx.params.id, resolved.selector);
+      return { status: 200, body: { visible } };
+    }),
+  );
+
+  // Check if element is enabled by selector or fingerprint
+  ns.get<unknown, { enabled?: boolean; error?: string }>(
+    "/instances/:id/isEnabled",
+    safeRoute(async (ctx: RouterContext) => {
+      const selector = ctx.searchParams.get("selector");
+      const fingerprint = ctx.searchParams.get("fingerprint");
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        selector,
+        fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      const enabled = await service.isEnabled(ctx.params.id, resolved.selector);
+      return { status: 200, body: { enabled } };
+    }),
+  );
+
+  // Select option in a select element (selector or fingerprint)
+  ns.post<
+    { fingerprint: string; value?: string },
+    { ok: boolean } | ErrorResponse
+  >("/instances/:id/selectOption", safeRoute(async (ctx: RouterContext) => {
+    const json = ctx.json() as {
+      selector?: string;
+      fingerprint?: string;
+      value?: string;
+    } | null;
+    const service = getService();
+    const resolved = await resolveSelectorOrFingerprint(
+      service,
       ctx.params.id,
-      json?.formData ?? {},
-      { typingMode: json?.typingMode, typingDelayMs: json?.typingDelayMs },
+      json?.selector,
+      json?.fingerprint,
     );
-    return { status: 200, body: { ok: okFilled } };
-  });
-
-  // Get input value
-  ns.get("/instances/:id/value", async (ctx: RouterContext) => {
-    const sel = ctx.searchParams.get("selector") ?? "";
-    const service = getService();
-    const value = await service.getValue(ctx.params.id, sel);
-    return { status: 200, body: { value } };
-  });
-
-  // Submit form
-  ns.post("/instances/:id/submit", async (ctx: RouterContext) => {
-    const json = ctx.json() as { selector?: string } | null;
-    const sel = json?.selector ?? "";
-    const service = getService();
-    const submitted = await service.submit(ctx.params.id, sel);
-    return { status: 200, body: { ok: submitted } };
-  });
-
-  // Clear input field
-  ns.post("/instances/:id/clearInput", async (ctx: RouterContext) => {
-    const json = ctx.json() as { selector?: string } | null;
-    const sel = json?.selector ?? "";
-    const service = getService();
-    const cleared = await service.clearInput(ctx.params.id, sel);
-    return { status: 200, body: { ok: cleared } };
-  });
-
-  // Get element attribute
-  ns.get("/instances/:id/attribute", async (ctx: RouterContext) => {
-    const sel = ctx.searchParams.get("selector") ?? "";
-    const attr = ctx.searchParams.get("name") ?? "";
-    const service = getService();
-    const value = await service.getAttribute(ctx.params.id, sel, attr);
-    return { status: 200, body: value != null ? { value } : { value: null } };
-  });
-
-  // Check if element is visible
-  ns.get("/instances/:id/isVisible", async (ctx: RouterContext) => {
-    const sel = ctx.searchParams.get("selector") ?? "";
-    const service = getService();
-    const visible = await service.isVisible(ctx.params.id, sel);
-    return { status: 200, body: { visible } };
-  });
-
-  // Check if element is enabled
-  ns.get("/instances/:id/isEnabled", async (ctx: RouterContext) => {
-    const sel = ctx.searchParams.get("selector") ?? "";
-    const service = getService();
-    const enabled = await service.isEnabled(ctx.params.id, sel);
-    return { status: 200, body: { enabled } };
-  });
-
-  // Select option in a select element
-  ns.post("/instances/:id/selectOption", async (ctx: RouterContext) => {
-    const json = ctx.json() as { selector?: string; value?: string } | null;
-    const sel = json?.selector ?? "";
+    if (!resolved.ok) return resolved.error;
     const value = json?.value ?? "";
-    const service = getService();
-    const ok = await service.selectOption(ctx.params.id, sel, value);
+    const ok = await service.selectOption(
+      ctx.params.id,
+      resolved.selector,
+      value,
+    );
     return { status: 200, body: { ok: ok ?? false } };
-  });
+  }));
 
-  // Set checked state of checkbox/radio
-  ns.post("/instances/:id/setChecked", async (ctx: RouterContext) => {
-    const json = ctx.json() as { selector?: string; checked?: boolean } | null;
-    const sel = json?.selector ?? "";
+  // Set checked state of checkbox/radio (selector or fingerprint)
+  ns.post<
+    { fingerprint: string; checked?: boolean },
+    { ok: boolean } | ErrorResponse
+  >("/instances/:id/setChecked", safeRoute(async (ctx: RouterContext) => {
+    const json = ctx.json() as {
+      selector?: string;
+      fingerprint?: string;
+      checked?: boolean;
+    } | null;
+    const service = getService();
+    const resolved = await resolveSelectorOrFingerprint(
+      service,
+      ctx.params.id,
+      json?.selector,
+      json?.fingerprint,
+    );
+    if (!resolved.ok) return resolved.error;
     const checked = json?.checked ?? false;
-    const service = getService();
-    const ok = await service.setChecked(ctx.params.id, sel, checked);
+    const ok = await service.setChecked(
+      ctx.params.id,
+      resolved.selector,
+      checked,
+    );
     return { status: 200, body: { ok: ok ?? false } };
-  });
+  }));
 
-  // Hover over element
-  ns.post("/instances/:id/hover", async (ctx: RouterContext) => {
-    const json = ctx.json() as { selector?: string } | null;
-    const sel = json?.selector ?? "";
-    const service = getService();
-    const ok = await service.hoverElement(ctx.params.id, sel);
-    return { status: 200, body: { ok: ok ?? false } };
-  });
+  // Hover over element (selector or fingerprint)
+  ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
+    "/instances/:id/hover",
+    safeRoute(async (ctx: RouterContext) => {
+      const json = ctx.json() as {
+        selector?: string;
+        fingerprint?: string;
+      } | null;
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        json?.selector,
+        json?.fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      const ok = await service.hoverElement(ctx.params.id, resolved.selector);
+      return { status: 200, body: { ok: ok ?? false } };
+    }),
+  );
 
-  // Scroll to element
-  ns.post("/instances/:id/scrollTo", async (ctx: RouterContext) => {
-    const json = ctx.json() as { selector?: string } | null;
-    const sel = json?.selector ?? "";
-    const service = getService();
-    const ok = await service.scrollToElement(ctx.params.id, sel);
-    return { status: 200, body: { ok: ok ?? false } };
-  });
+  // Scroll to element (selector or fingerprint)
+  ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
+    "/instances/:id/scrollTo",
+    safeRoute(async (ctx: RouterContext) => {
+      const json = ctx.json() as {
+        selector?: string;
+        fingerprint?: string;
+      } | null;
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        json?.selector,
+        json?.fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      const ok = await service.scrollToElement(
+        ctx.params.id,
+        resolved.selector,
+      );
+      return { status: 200, body: { ok: ok ?? false } };
+    }),
+  );
 
   // Get page title
-  ns.get("/instances/:id/title", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/title", safeRoute(async (ctx: RouterContext) => {
     const service = getService();
     const title = await service.getPageTitle(ctx.params.id);
     return { status: 200, body: title != null ? { title } : { title: null } };
-  });
+  }));
 
-  // Double click element
-  ns.post("/instances/:id/doubleClick", async (ctx: RouterContext) => {
-    const json = ctx.json() as { selector?: string } | null;
-    const sel = json?.selector ?? "";
-    const service = getService();
-    const ok = await service.doubleClick(ctx.params.id, sel);
-    return { status: 200, body: { ok: ok ?? false } };
-  });
+  // Double click element (selector or fingerprint)
+  ns.post<{ fingerprint: string }, { ok?: boolean; error?: string }>(
+    "/instances/:id/doubleClick",
+    safeRoute(async (ctx: RouterContext) => {
+      const json = ctx.json() as {
+        selector?: string;
+        fingerprint?: string;
+      } | null;
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        json?.selector,
+        json?.fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      if (!service.doubleClick) {
+        return { status: 501, body: { error: "doubleClick not supported" } };
+      }
+      const ok = await service.doubleClick(ctx.params.id, resolved.selector);
+      return { status: 200, body: { ok: ok ?? false } };
+    }),
+  );
 
-  // Right click element
-  ns.post("/instances/:id/rightClick", async (ctx: RouterContext) => {
-    const json = ctx.json() as { selector?: string } | null;
-    const sel = json?.selector ?? "";
-    const service = getService();
-    const ok = await service.rightClick(ctx.params.id, sel);
-    return { status: 200, body: { ok: ok ?? false } };
-  });
+  // Right click element (selector or fingerprint)
+  ns.post<{ fingerprint: string }, { ok?: boolean; error?: string }>(
+    "/instances/:id/rightClick",
+    safeRoute(async (ctx: RouterContext) => {
+      const json = ctx.json() as {
+        selector?: string;
+        fingerprint?: string;
+      } | null;
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        json?.selector,
+        json?.fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      if (!service.rightClick) {
+        return { status: 501, body: { error: "rightClick not supported" } };
+      }
+      const ok = await service.rightClick(ctx.params.id, resolved.selector);
+      return { status: 200, body: { ok: ok ?? false } };
+    }),
+  );
 
-  // Focus element
-  ns.post("/instances/:id/focus", async (ctx: RouterContext) => {
-    const json = ctx.json() as { selector?: string } | null;
-    const sel = json?.selector ?? "";
-    const service = getService();
-    const ok = await service.focusElement(ctx.params.id, sel);
-    return { status: 200, body: { ok: ok ?? false } };
-  });
+  // Focus element (selector or fingerprint)
+  ns.post<{ fingerprint: string }, { ok?: boolean; error?: string }>(
+    "/instances/:id/focus",
+    safeRoute(async (ctx: RouterContext) => {
+      const json = ctx.json() as {
+        selector?: string;
+        fingerprint?: string;
+      } | null;
+      const service = getService();
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
+        ctx.params.id,
+        json?.selector,
+        json?.fingerprint,
+      );
+      if (!resolved.ok) return resolved.error;
+      if (!service.focusElement) {
+        return { status: 501, body: { error: "focusElement not supported" } };
+      }
+      const ok = await service.focusElement(ctx.params.id, resolved.selector);
+      return { status: 200, body: { ok: ok ?? false } };
+    }),
+  );
 
-  // Drag and drop
-  ns.post("/instances/:id/dragAndDrop", async (ctx: RouterContext) => {
+  // Drag and drop (selector or fingerprint for both source and target)
+  ns.post<
+    { sourceFingerprint: string; targetFingerprint: string },
+    { ok: boolean } | ErrorResponse
+  >("/instances/:id/dragAndDrop", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       sourceSelector?: string;
+      sourceFingerprint?: string;
       targetSelector?: string;
+      targetFingerprint?: string;
     } | null;
-    const source = json?.sourceSelector ?? "";
-    const target = json?.targetSelector ?? "";
     const service = getService();
-    const ok = await service.dragAndDrop(ctx.params.id, source, target);
+    const source = await resolveSelectorOrFingerprint(
+      service,
+      ctx.params.id,
+      json?.sourceSelector,
+      json?.sourceFingerprint,
+    );
+    if (!source.ok) return source.error;
+    const target = await resolveSelectorOrFingerprint(
+      service,
+      ctx.params.id,
+      json?.targetSelector,
+      json?.targetFingerprint,
+    );
+    if (!target.ok) return target.error;
+    const ok = await service.dragAndDrop(
+      ctx.params.id,
+      source.selector,
+      target.selector,
+    );
     return { status: 200, body: { ok: ok ?? false } };
-  });
+  }));
 
   // Get cookies
-  ns.get("/instances/:id/cookies", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/cookies", safeRoute(async (ctx: RouterContext) => {
     const service = getService();
     const cookies = await service.getCookies(ctx.params.id);
     return { status: 200, body: { cookies } };
-  });
+  }));
 
   // Set cookie
   ns.post<
@@ -340,7 +886,7 @@ export function registerCommonAutomationRoutes(
       expirationDate?: number;
     },
     OkResponse | ErrorResponse
-  >("/instances/:id/cookie", async (ctx: RouterContext) => {
+  >("/instances/:id/cookie", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       name?: string;
       value?: string;
@@ -369,106 +915,189 @@ export function registerCommonAutomationRoutes(
       return { status: 500, body: { error: "failed to set cookie" } };
     }
     return { status: 200, body: { ok: true } };
-  });
+  }));
 
   // Accept alert
-  ns.post("/instances/:id/acceptAlert", async (ctx: RouterContext) => {
-    const service = getService();
-    const ok = await service.acceptAlert(ctx.params.id);
-    return { status: 200, body: { ok: ok ?? false } };
-  });
+  ns.post<unknown, { ok?: boolean; error?: string }>(
+    "/instances/:id/acceptAlert",
+    safeRoute(async (ctx: RouterContext) => {
+      const service = getService();
+      if (!service.acceptAlert) {
+        return { status: 501, body: { error: "acceptAlert not supported" } };
+      }
+      const ok = await service.acceptAlert(ctx.params.id);
+      return { status: 200, body: { ok: ok ?? false } };
+    }),
+  );
 
   // Dismiss alert
-  ns.post("/instances/:id/dismissAlert", async (ctx: RouterContext) => {
-    const service = getService();
-    const ok = await service.dismissAlert(ctx.params.id);
-    return { status: 200, body: { ok: ok ?? false } };
-  });
+  ns.post<unknown, { ok?: boolean; error?: string }>(
+    "/instances/:id/dismissAlert",
+    safeRoute(async (ctx: RouterContext) => {
+      const service = getService();
+      if (!service.dismissAlert) {
+        return { status: 501, body: { error: "dismissAlert not supported" } };
+      }
+      const ok = await service.dismissAlert(ctx.params.id);
+      return { status: 200, body: { ok: ok ?? false } };
+    }),
+  );
 
   // Wait for network idle
-  ns.post("/instances/:id/waitForNetworkIdle", async (ctx: RouterContext) => {
-    const json = ctx.json() as { timeout?: number } | null;
-    const timeout = json?.timeout ?? 5000;
-    const service = getService();
-    const ok = await service.waitForNetworkIdle(ctx.params.id, timeout);
-    return { status: 200, body: { ok: ok ?? false } };
-  });
+  ns.post<{ timeout?: number }, { ok?: boolean; error?: string }>(
+    "/instances/:id/waitForNetworkIdle",
+    safeRoute(async (ctx: RouterContext) => {
+      const json = ctx.json() as { timeout?: number } | null;
+      const timeout = clampTimeout(json?.timeout, 5000);
+      const service = getService();
+      if (!service.waitForNetworkIdle) {
+        return {
+          status: 501,
+          body: { error: "waitForNetworkIdle not supported" },
+        };
+      }
+      const ok = await service.waitForNetworkIdle(ctx.params.id, timeout);
+      return { status: 200, body: { ok: ok ?? false } };
+    }),
+  );
 
   // Wait for document ready (DOMContentLoaded)
-  ns.post("/instances/:id/waitForReady", async (ctx: RouterContext) => {
+  ns.post("/instances/:id/waitForReady", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as { timeout?: number } | null;
-    const timeout = json?.timeout ?? 15000;
+    const timeout = clampTimeout(json?.timeout, 15000);
     const service = getService();
     const ok = await service.waitForReady(ctx.params.id, timeout);
     return { status: 200, body: { ok: ok ?? false } };
-  });
+  }));
 
-  // Set innerHTML (for contenteditable elements)
-  ns.post("/instances/:id/setInnerHTML", async (ctx: RouterContext) => {
-    const json = ctx.json() as { selector?: string; html?: string } | null;
-    const sel = json?.selector ?? "";
-    const html = json?.html ?? "";
-    const service = getService();
-    const ok = await service.setInnerHTML(ctx.params.id, sel, html);
-    return { status: 200, body: { ok: ok ?? false } };
-  });
-
-  // Set textContent (for contenteditable elements)
-  ns.post("/instances/:id/setTextContent", async (ctx: RouterContext) => {
-    const json = ctx.json() as { selector?: string; text?: string } | null;
-    const sel = json?.selector ?? "";
-    const text = json?.text ?? "";
-    const service = getService();
-    const ok = await service.setTextContent(ctx.params.id, sel, text);
-    return { status: 200, body: { ok: ok ?? false } };
-  });
-
-  // Dispatch event on element
-  ns.post("/instances/:id/dispatchEvent", async (ctx: RouterContext) => {
+  // Set innerHTML (for contenteditable elements, selector or fingerprint)
+  ns.post<
+    { fingerprint: string; html?: string },
+    { ok: boolean } | ErrorResponse
+  >("/instances/:id/setInnerHTML", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
+      selector?: string;
+      fingerprint?: string;
+      html?: string;
+    } | null;
+    const service = getService();
+    const resolved = await resolveSelectorOrFingerprint(
+      service,
+      ctx.params.id,
+      json?.selector,
+      json?.fingerprint,
+    );
+    if (!resolved.ok) return resolved.error;
+    const html = json?.html ?? "";
+    const ok = await service.setInnerHTML(
+      ctx.params.id,
+      resolved.selector,
+      html,
+    );
+    return { status: 200, body: { ok: ok ?? false } };
+  }));
+
+  // Set textContent (for contenteditable elements, selector or fingerprint)
+  ns.post<
+    { fingerprint: string; text?: string },
+    { ok: boolean } | ErrorResponse
+  >("/instances/:id/setTextContent", safeRoute(async (ctx: RouterContext) => {
+    const json = ctx.json() as {
+      selector?: string;
+      fingerprint?: string;
+      text?: string;
+    } | null;
+    const service = getService();
+    const resolved = await resolveSelectorOrFingerprint(
+      service,
+      ctx.params.id,
+      json?.selector,
+      json?.fingerprint,
+    );
+    if (!resolved.ok) return resolved.error;
+    const text = json?.text ?? "";
+    const ok = await service.setTextContent(
+      ctx.params.id,
+      resolved.selector,
+      text,
+    );
+    return { status: 200, body: { ok: ok ?? false } };
+  }));
+
+  // Dispatch event on element (selector or fingerprint)
+  ns.post<
+    {
+      fingerprint: string;
       selector?: string;
       eventType?: string;
       options?: { bubbles?: boolean; cancelable?: boolean };
+    },
+    { ok: boolean } | ErrorResponse
+  >("/instances/:id/dispatchEvent", safeRoute(async (ctx: RouterContext) => {
+    const json = ctx.json() as {
+      selector?: string;
+      fingerprint: string;
+      eventType?: string;
+      options?: { bubbles?: boolean; cancelable?: boolean };
     } | null;
-    const sel = json?.selector ?? "";
-    const eventType = json?.eventType ?? "";
-    const options = json?.options;
+    if (!json?.eventType) {
+      return { status: 400, body: { error: "eventType required" } };
+    }
     const service = getService();
+    const resolved = await resolveSelectorOrFingerprint(
+      service,
+      ctx.params.id,
+      json?.selector,
+      json?.fingerprint,
+    );
+    if (!resolved.ok) return resolved.error;
+    const options = json?.options;
     const ok = await service.dispatchEvent(
       ctx.params.id,
-      sel,
-      eventType,
+      resolved.selector,
+      json.eventType,
       options,
     );
     return { status: 200, body: { ok: ok ?? false } };
-  });
+  }));
 
-  // Type into an element (optional typing mode)
+  // Type into an element (optional typing mode, selector or fingerprint)
   ns.post<
     {
+      fingerprint: string;
       selector?: string;
       value?: string;
       typingMode?: boolean;
       typingDelayMs?: number;
     },
     OkResponse | ErrorResponse
-  >("/instances/:id/input", async (ctx: RouterContext) => {
+  >("/instances/:id/input", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       selector?: string;
+      fingerprint: string;
       value?: string;
       typingMode?: boolean;
       typingDelayMs?: number;
     } | null;
-    if (!json?.selector || json.value === undefined) {
-      return { status: 400, body: { error: "selector and value required" } };
-    }
+
     const service = getService();
+    const resolved = await resolveSelectorOrFingerprint(
+      service,
+      ctx.params.id,
+      json?.selector,
+      json?.fingerprint,
+    );
+    if (!resolved.ok) return resolved.error;
+
+    if (json?.value === undefined) {
+      return { status: 400, body: { error: "value required" } };
+    }
     if (!service.inputElement) {
       return { status: 501, body: { error: "inputElement not supported" } };
     }
     const ok = await service.inputElement(
       ctx.params.id,
-      json.selector,
+      resolved.selector,
       json.value,
       {
         typingMode: json.typingMode,
@@ -476,12 +1105,12 @@ export function registerCommonAutomationRoutes(
       },
     );
     return { status: 200, body: { ok: !!ok } };
-  });
+  }));
 
   // Press key or key combination
   ns.post<{ key?: string }, OkResponse | ErrorResponse>(
     "/instances/:id/pressKey",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const json = ctx.json() as { key?: string } | null;
       if (!json?.key) {
         return { status: 400, body: { error: "key required" } };
@@ -492,53 +1121,69 @@ export function registerCommonAutomationRoutes(
       }
       const ok = await service.pressKey(ctx.params.id, json.key);
       return { status: 200, body: { ok: !!ok } };
-    },
+    }),
   );
 
-  // Upload file via input[type=file]
-  ns.post<{ selector?: string; filePath?: string }, OkResponse | ErrorResponse>(
-    "/instances/:id/uploadFile",
-    async (ctx: RouterContext) => {
+  // Upload file via input[type=file] (selector or fingerprint)
+  ns.post<
+    { fingerprint: string; filePath?: string },
+    OkResponse | ErrorResponse
+  >("/instances/:id/uploadFile", safeRoute(async (ctx: RouterContext) => {
+    const json = ctx.json() as {
+      selector?: string;
+      fingerprint?: string;
+      filePath?: string;
+    } | null;
+    const service = getService();
+    const resolved = await resolveSelectorOrFingerprint(
+      service,
+      ctx.params.id,
+      json?.selector,
+      json?.fingerprint,
+    );
+    if (!resolved.ok) return resolved.error;
+
+    if (!json?.filePath) {
+      return { status: 400, body: { error: "filePath required" } };
+    }
+    if (!service.uploadFile) {
+      return { status: 501, body: { error: "uploadFile not supported" } };
+    }
+    const ok = await service.uploadFile(
+      ctx.params.id,
+      resolved.selector,
+      json.filePath,
+    );
+    return { status: 200, body: { ok: !!ok } };
+  }));
+
+  // Dispatch text input event (for rich text editors, selector or fingerprint)
+  ns.post<{ fingerprint: string; text?: string }, OkResponse | ErrorResponse>(
+    "/instances/:id/dispatchTextInput",
+    safeRoute(async (ctx: RouterContext) => {
       const json = ctx.json() as {
         selector?: string;
-        filePath?: string;
+        fingerprint?: string;
+        text?: string;
       } | null;
-      if (!json?.selector || !json?.filePath) {
-        return {
-          status: 400,
-          body: { error: "selector and filePath required" },
-        };
-      }
       const service = getService();
-      if (!service.uploadFile) {
-        return { status: 501, body: { error: "uploadFile not supported" } };
-      }
-      const ok = await service.uploadFile(
+      const resolved = await resolveSelectorOrFingerprint(
+        service,
         ctx.params.id,
-        json.selector,
-        json.filePath,
+        json?.selector,
+        json?.fingerprint,
       );
-      return { status: 200, body: { ok: !!ok } };
-    },
-  );
+      if (!resolved.ok) return resolved.error;
 
-
-  // Dispatch text input event (for rich text editors like Draft.js)
-  // Properly fires beforeinput event with inputType: insertText
-  ns.post<{ selector?: string; text?: string }, OkResponse | ErrorResponse>(
-    "/instances/:id/dispatchTextInput",
-    async (ctx: RouterContext) => {
-      const json = ctx.json() as { selector?: string; text?: string } | null;
-      if (!json?.selector || json.text === undefined) {
-        return { status: 400, body: { error: "selector and text required" } };
+      if (json?.text === undefined) {
+        return { status: 400, body: { error: "text required" } };
       }
-      const service = getService();
       const ok = await service.dispatchTextInput(
         ctx.params.id,
-        json.selector,
+        resolved.selector,
         json.text,
       );
       return { status: 200, body: { ok: !!ok } };
-    },
+    }),
   );
 }

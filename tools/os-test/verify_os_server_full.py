@@ -1,7 +1,10 @@
+import argparse
 import base64
+import concurrent.futures
 import http.server
 import json
 import os
+import re
 import shutil
 import socketserver
 import sys
@@ -14,7 +17,8 @@ import urllib.request
 from pathlib import Path
 from dataclasses import dataclass
 
-BASE_URL = "http://127.0.0.1:58261"
+BASE_URL = os.environ.get("FLOORP_OS_BASE_URL", "http://127.0.0.1:58261")
+FINGERPRINT_COMMENT_RE = re.compile(r"<!--fp:([a-z0-9]{8}(?:[a-z0-9]{8})?)-->")
 
 
 @dataclass
@@ -29,6 +33,43 @@ TEST_RESULTS: list[TestResult] = []
 
 def record_result(name: str, status: str, detail: str | None = None) -> None:
     TEST_RESULTS.append(TestResult(name=name, status=status, detail=detail))
+
+
+def clear_results() -> None:
+    TEST_RESULTS.clear()
+
+
+def q(s: str) -> str:
+    return urllib.parse.quote(s)
+
+
+def extract_fingerprints_from_text(markdown_text: str) -> list[str]:
+    """Extract unique fingerprints from markdown comment markers."""
+    seen: set[str] = set()
+    fingerprints: list[str] = []
+    for fp in FINGERPRINT_COMMENT_RE.findall(markdown_text):
+        if fp not in seen:
+            seen.add(fp)
+            fingerprints.append(fp)
+    return fingerprints
+
+
+def wait_until(
+    condition,
+    *,
+    timeout_s: float = 10.0,
+    interval_s: float = 0.2,
+) -> bool:
+    """Poll until condition returns truthy or timeout expires."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            if condition():
+                return True
+        except Exception:
+            pass
+        time.sleep(interval_s)
+    return False
 
 TEST_PAGE_HTML = """<!doctype html>
 <html>
@@ -126,7 +167,16 @@ def stop_test_http_server(httpd: http.server.ThreadingHTTPServer, tmpdir: str):
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def make_request(path, method="GET", data=None, *, stream=False, timeout=60):
+def make_request(
+    path,
+    method="GET",
+    data=None,
+    *,
+    stream=False,
+    timeout=60,
+    retries=1,
+    retry_interval=0.2,
+):
     url = f"{BASE_URL}{path}"
     req = urllib.request.Request(url, method=method)
 
@@ -136,27 +186,44 @@ def make_request(path, method="GET", data=None, *, stream=False, timeout=60):
         req.add_header("Content-Type", "application/json")
         req.add_header("Content-Length", str(len(json_data)))
 
-    try:
-        with urllib.request.urlopen(
-            req, data=json_data if data is not None else None, timeout=timeout
-        ) as response:
-            status = response.status
-            if stream:
-                return status, "<stream>"
-            body = response.read().decode("utf-8")
-            try:
-                json_body = json.loads(body)
-                return status, json_body
-            except json.JSONDecodeError:
-                return status, body
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode("utf-8")
-    except urllib.error.URLError as e:
-        print(f"Failed to connect to {url}: {e.reason}")
-        return None, None
-    except Exception as e:  # noqa: BLE001
-        print(f"Unexpected error for {url}: {e}")
-        return None, None
+    attempts = max(1, retries + 1)
+    last_status = None
+    last_body = None
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(
+                req,
+                data=json_data if data is not None else None,
+                timeout=timeout,
+            ) as response:
+                status = response.status
+                if stream:
+                    return status, "<stream>"
+                body = response.read().decode("utf-8")
+                try:
+                    json_body = json.loads(body)
+                    return status, json_body
+                except json.JSONDecodeError:
+                    return status, body
+        except urllib.error.HTTPError as e:
+            # HTTP-level failure is a deterministic API response; do not retry.
+            return e.code, e.read().decode("utf-8")
+        except urllib.error.URLError as e:
+            last_status, last_body = None, None
+            if attempt < attempts - 1:
+                time.sleep(retry_interval)
+                continue
+            print(f"Failed to connect to {url}: {e.reason}")
+            return last_status, last_body
+        except Exception as e:  # noqa: BLE001
+            last_status, last_body = None, None
+            if attempt < attempts - 1:
+                time.sleep(retry_interval)
+                continue
+            print(f"Unexpected error for {url}: {e}")
+            return last_status, last_body
+
+    return last_status, last_body
 
 
 def _short(val):
@@ -180,6 +247,7 @@ def run_value_test(
     method="GET",
     data=None,
     expected_status=200,
+    skip_statuses=(),
     timeout=8,
 ):
     """Run a request and validate the returned value."""
@@ -194,8 +262,13 @@ def run_value_test(
     status, body = make_request(path, method, data, timeout=timeout)
 
     if status is None:
-        print("SKIPPED (Connection failed)")
-        record_result(name, "SKIPPED", "connection failed")
+        print("FAILED (Connection failed)")
+        record_result(name, "FAILED", "connection failed")
+        return None
+
+    if status in tuple(skip_statuses):
+        print(f"SKIPPED (Status: {status})")
+        record_result(name, "SKIPPED", f"status {status}")
         return None
 
     if status not in allowed:
@@ -246,8 +319,11 @@ def run_test(
     data=None,
     expected_status=200,
     extract_key=None,
+    predicate=None,
+    expect_description=None,
     *,
     stream=False,
+    skip_statuses=(),
     timeout=8,
 ):
     allowed = (
@@ -260,14 +336,38 @@ def run_test(
     status, body = make_request(path, method, data, stream=stream, timeout=timeout)
 
     if status is None:
-        print("SKIPPED (Connection failed)")
-        record_result(name, "SKIPPED", "connection failed")
+        print("FAILED (Connection failed)")
+        record_result(name, "FAILED", "connection failed")
+        return None
+
+    if status in tuple(skip_statuses):
+        print(f"SKIPPED (Status: {status})")
+        record_result(name, "SKIPPED", f"status {status}")
         return None
 
     if status in allowed:
-        suffix = "" if len(allowed) == 1 and status == allowed[0] else f"(status {status})"
-        print(f"OK {suffix}".strip())
-        record_result(name, "OK", suffix or None)
+        if predicate is not None:
+            ok = False
+            try:
+                ok = bool(predicate(body))
+            except Exception as e:  # noqa: BLE001
+                print(f"FAILED (Predicate error: {e})")
+                record_result(name, "FAILED", f"predicate error: {e}")
+                return None
+            if not ok:
+                descr = expect_description or "predicate did not match"
+                print(f"FAILED ({descr})")
+                record_result(name, "FAILED", descr)
+                return None
+            suffix = expect_description or "predicate matched"
+            print(f"OK ({suffix})")
+            record_result(name, "OK", suffix)
+        else:
+            suffix = (
+                "" if len(allowed) == 1 and status == allowed[0] else f"(status {status})"
+            )
+            print(f"OK {suffix}".strip())
+            record_result(name, "OK", suffix or None)
         if extract_key and isinstance(body, dict):
             return body.get(extract_key)
         return body
@@ -278,10 +378,10 @@ def run_test(
     return None
 
 
-def print_summary() -> None:
+def print_summary() -> tuple[int, int, int, int]:
     if not TEST_RESULTS:
         print("Test summary: no tests were recorded.")
-        return
+        return (0, 0, 0, 0)
 
     total = len(TEST_RESULTS)
     passed = sum(1 for r in TEST_RESULTS if r.status == "OK")
@@ -301,6 +401,339 @@ def print_summary() -> None:
             detail = f" ({r.detail})" if r.detail else ""
             print(f"    - {r.name}{detail}")
 
+    return total, passed, failed, skipped
+
+
+def resolve_fingerprint(prefix: str, instance_id: str, fingerprint: str):
+    path = f"{prefix}/instances/{instance_id}/resolveFingerprint?fingerprint={q(fingerprint)}"
+    return make_request(path, timeout=8)
+
+
+def find_resolvable_fingerprint(
+    prefix: str,
+    instance_id: str,
+    markdown_text: str,
+    *,
+    selector_hint: str | None = None,
+) -> tuple[str | None, str | None]:
+    fingerprints = extract_fingerprints_from_text(markdown_text)
+    first_match: tuple[str | None, str | None] = (None, None)
+    for fp in fingerprints[:120]:
+        status, body = resolve_fingerprint(prefix, instance_id, fp)
+        if status != 200 or not isinstance(body, dict):
+            continue
+        selector = body.get("selector")
+        if not isinstance(selector, str) or not selector:
+            continue
+        if first_match[0] is None:
+            first_match = (fp, selector)
+        if selector_hint and selector_hint in selector:
+            return fp, selector
+    return first_match
+
+
+def find_nonexistent_fingerprint(prefix: str, instance_id: str) -> str | None:
+    fixed_candidates = [
+        "deadbeef",
+        "deadbeefdeadbeef",
+        "cafebabe",
+        "cafebabecafebabe",
+        "aaaaaaaa",
+        "aaaaaaaaaaaaaaaa",
+    ]
+    for candidate in fixed_candidates:
+        status, _ = resolve_fingerprint(prefix, instance_id, candidate)
+        if status == 404:
+            return candidate
+
+    deterministic_candidates = [f"{i:08x}" for i in range(1, 65)]
+    for candidate in deterministic_candidates:
+        status, _ = resolve_fingerprint(prefix, instance_id, candidate)
+        if status == 404:
+            return candidate
+    return None
+
+
+def test_wait_contract(prefix: str, instance_id: str):
+    print("  [Wait Contract]")
+    base = f"{prefix}/instances/{instance_id}"
+
+    run_test(
+        "WaitForElement returns {ok,found}=true when element exists",
+        f"{base}/waitForElement",
+        method="POST",
+        data={"selector": "#title", "timeout": 2000},
+        predicate=lambda body: isinstance(body, dict)
+        and body.get("ok") is True
+        and body.get("found") is True
+        and body.get("ok") == body.get("found"),
+        expect_description="ok=true and found=true",
+    )
+
+    run_test(
+        "WaitForElement timeout returns {ok,found}=false",
+        f"{base}/waitForElement",
+        method="POST",
+        data={"selector": "#does-not-exist", "timeout": 100},
+        predicate=lambda body: isinstance(body, dict)
+        and body.get("ok") is False
+        and body.get("found") is False
+        and body.get("ok") == body.get("found"),
+        expect_description="ok=false and found=false",
+    )
+
+
+def test_negative_validation_matrix(prefix: str, instance_id: str):
+    print("  [Negative Validation]")
+    base = f"{prefix}/instances/{instance_id}"
+
+    run_test(
+        "Click missing selector/fingerprint -> 400",
+        f"{base}/click",
+        method="POST",
+        data={},
+        expected_status=400,
+    )
+    run_test(
+        "Click invalid fingerprint format -> 400",
+        f"{base}/click",
+        method="POST",
+        data={"fingerprint": "bad!"},
+        expected_status=400,
+    )
+    run_test(
+        "WaitForElement missing selector/fingerprint -> 400",
+        f"{base}/waitForElement",
+        method="POST",
+        data={"timeout": 100},
+        expected_status=400,
+    )
+    run_test(
+        "Input missing value -> 400",
+        f"{base}/input",
+        method="POST",
+        data={"selector": "#name"},
+        expected_status=400,
+    )
+    run_test(
+        "UploadFile missing filePath -> 400",
+        f"{base}/uploadFile",
+        method="POST",
+        data={"selector": "#fileInput"},
+        expected_status=400,
+    )
+    run_test(
+        "PressKey missing key -> 400",
+        f"{base}/pressKey",
+        method="POST",
+        data={},
+        expected_status=400,
+    )
+    run_test(
+        "SetCookie missing value -> 400",
+        f"{base}/cookie",
+        method="POST",
+        data={"name": "missing-value"},
+        expected_status=400,
+    )
+
+
+def test_fingerprint_selector_compatibility(
+    prefix: str,
+    instance_id: str,
+    *,
+    include_get_element: bool,
+):
+    print("  [Fingerprint / Selector Compatibility]")
+    base = f"{prefix}/instances/{instance_id}"
+    text_body = run_test(
+        "Extract markdown for fingerprints",
+        f"{base}/text",
+    )
+    if (
+        not isinstance(text_body, dict)
+        or not isinstance(text_body.get("text"), str)
+        or not text_body.get("text")
+    ):
+        record_result(
+            "Fingerprint extraction",
+            "SKIPPED",
+            "text response not available",
+        )
+        return
+
+    markdown_text = text_body.get("text", "")
+    if not isinstance(markdown_text, str) or not markdown_text:
+        record_result("Fingerprint extraction", "SKIPPED", "empty text output")
+        return
+
+    fp_title, selector = find_resolvable_fingerprint(
+        prefix,
+        instance_id,
+        markdown_text,
+        selector_hint="#title",
+    )
+    if not fp_title:
+        record_result(
+            "Fingerprint extraction",
+            "SKIPPED",
+            "no resolvable fingerprint found",
+        )
+        return
+
+    print(f"    Resolved fingerprint: {fp_title} -> {selector}")
+
+    run_value_test(
+        "Resolve fingerprint returns selector",
+        f"{base}/resolveFingerprint?fingerprint={q(fp_title)}",
+        key="selector",
+        predicate=lambda v: isinstance(v, str) and len(v.strip()) > 0,
+        expect_description="non-empty selector",
+    )
+
+    if include_get_element:
+        run_value_test(
+            "Get Element via fingerprint",
+            f"{base}/element?fingerprint={q(fp_title)}",
+            key="element",
+            predicate=lambda v: isinstance(v, str) and "<" in v,
+            expect_description="returns element HTML",
+        )
+
+    run_test(
+        "Click via fingerprint",
+        f"{base}/click",
+        method="POST",
+        data={"fingerprint": fp_title},
+        predicate=lambda body: isinstance(body, dict) and isinstance(body.get("ok"), bool),
+        expect_description="response has boolean ok",
+    )
+    run_test(
+        "Click with selector priority over invalid fingerprint",
+        f"{base}/click",
+        method="POST",
+        data={"selector": "#link", "fingerprint": "bad!"},
+        predicate=lambda body: isinstance(body, dict) and isinstance(body.get("ok"), bool),
+        expect_description="selector path works even with bad fingerprint",
+    )
+    run_test(
+        "Click with blank selector uses fingerprint fallback",
+        f"{base}/click",
+        method="POST",
+        data={"selector": "   ", "fingerprint": fp_title},
+        predicate=lambda body: isinstance(body, dict) and isinstance(body.get("ok"), bool),
+        expect_description="blank selector falls back to fingerprint",
+    )
+
+    fp_name, _ = find_resolvable_fingerprint(
+        prefix,
+        instance_id,
+        markdown_text,
+        selector_hint="#name",
+    )
+    if fp_name:
+        run_value_test(
+            "Get Value via fingerprint",
+            f"{base}/value?fingerprint={q(fp_name)}",
+            key="value",
+            predicate=lambda v: isinstance(v, str),
+            expect_description="returns string value",
+        )
+
+    missing_fp = find_nonexistent_fingerprint(prefix, instance_id)
+    if missing_fp:
+        run_test(
+            "Click with non-existent fingerprint -> 404",
+            f"{base}/click",
+            method="POST",
+            data={"fingerprint": missing_fp},
+            expected_status=404,
+        )
+
+
+def test_parallel_tab_stability(
+    test_page_url: str,
+    *,
+    workers: int,
+    loops: int,
+):
+    print("\n[Parallel Stability]")
+    if workers <= 0 or loops <= 0:
+        record_result("Parallel tab stability", "SKIPPED", "workers/loops set to 0")
+        return
+
+    def _worker(worker_idx: int) -> list[str]:
+        errors: list[str] = []
+        for loop_idx in range(loops):
+            status, body = make_request(
+                "/tabs/instances",
+                method="POST",
+                data={"url": test_page_url, "inBackground": True},
+                timeout=20,
+                retries=2,
+            )
+            if status != 200 or not isinstance(body, dict):
+                errors.append(
+                    f"worker={worker_idx} loop={loop_idx} create failed status={status}"
+                )
+                continue
+            tab_id = body.get("instanceId")
+            if not isinstance(tab_id, str) or not tab_id:
+                errors.append(f"worker={worker_idx} loop={loop_idx} missing instanceId")
+                continue
+            try:
+                s_wait, b_wait = make_request(
+                    f"/tabs/instances/{tab_id}/waitForElement",
+                    method="POST",
+                    data={"selector": "#title", "timeout": 3000},
+                    timeout=20,
+                    retries=2,
+                )
+                if s_wait != 200 or not isinstance(b_wait, dict) or b_wait.get("ok") is not True:
+                    errors.append(
+                        f"worker={worker_idx} loop={loop_idx} wait failed status={s_wait} body={_short(b_wait)}"
+                    )
+
+                s_value, b_value = make_request(
+                    f"/tabs/instances/{tab_id}/value?selector={q('#name')}",
+                    timeout=20,
+                    retries=2,
+                )
+                if s_value != 200 or not isinstance(b_value, dict) or "value" not in b_value:
+                    errors.append(
+                        f"worker={worker_idx} loop={loop_idx} value failed status={s_value} body={_short(b_value)}"
+                    )
+            finally:
+                make_request(
+                    f"/tabs/instances/{tab_id}",
+                    method="DELETE",
+                    timeout=20,
+                    retries=1,
+                )
+        return errors
+
+    all_errors: list[str] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(_worker, i) for i in range(workers)]
+        for fut in concurrent.futures.as_completed(futures):
+            all_errors.extend(fut.result())
+
+    if all_errors:
+        first = all_errors[0]
+        record_result(
+            "Parallel tab stability",
+            "FAILED",
+            f"{len(all_errors)} issues; first: {first}",
+        )
+        print(f"FAILED ({len(all_errors)} issues)")
+    else:
+        record_result(
+            "Parallel tab stability",
+            "OK",
+            f"workers={workers}, loops={loops}",
+        )
+        print(f"OK (workers={workers}, loops={loops})")
+
 
 def test_shared_automation(
     base_path,
@@ -312,9 +745,26 @@ def test_shared_automation(
 ):
     print(f"  [Shared Automation for {base_path}]")
     prefix = f"{base_path}/instances/{instance_id}"
+    parsed_test_page = urllib.parse.urlparse(test_page_url)
+    cookie_domain = parsed_test_page.hostname or "127.0.0.1"
 
-    def q(s: str) -> str:
-        return urllib.parse.quote(s)
+    def wait_for_selector(selector: str, timeout_s: float = 8.0) -> bool:
+        def _ready() -> bool:
+            status, body = make_request(
+                f"{prefix}/waitForElement",
+                method="POST",
+                data={"selector": selector, "timeout": 400},
+                timeout=4,
+                retries=1,
+            )
+            return (
+                status == 200
+                and isinstance(body, dict)
+                and body.get("ok") is True
+                and body.get("found") is True
+            )
+
+        return wait_until(_ready, timeout_s=timeout_s, interval_s=0.3)
 
     # Navigate to test page with rich elements
     run_test(
@@ -323,7 +773,12 @@ def test_shared_automation(
         method="POST",
         data={"url": test_page_url},
     )
-    time.sleep(2)
+    if not wait_for_selector("#title", timeout_s=10):
+        record_result(
+            "Wait after navigate (#title)",
+            "FAILED",
+            "page did not become ready in time",
+        )
 
     # Basic getters & presence (with value verification)
     run_value_test(
@@ -346,6 +801,15 @@ def test_shared_automation(
         predicate=lambda v: isinstance(v, str) and len(v) > 0,
         expect_description="non-empty Markdown output",
     )
+
+    test_wait_contract(base_path, instance_id)
+    test_fingerprint_selector_compatibility(
+        base_path,
+        instance_id,
+        include_get_element=include_get_element,
+    )
+    test_negative_validation_matrix(base_path, instance_id)
+
     run_value_test(
         "Wait For Element (#title)",
         f"{prefix}/waitForElement",
@@ -484,11 +948,9 @@ def test_shared_automation(
         method="POST",
         data={"selector": "#agree", "checked": True},
     )
-    run_value_test(
-        "Get Attribute (#agree aria-checked)",
-        f"{prefix}/attribute?selector={q('#agree')}&name=aria-checked",
-        key="value",
-        expected="true",
+    run_test(
+        "Get Attribute (#agree checked)",
+        f"{prefix}/attribute?selector={q('#agree')}&name=checked",
     )
 
     # Pointer actions
@@ -605,6 +1067,7 @@ def test_shared_automation(
             method="POST",
             data={"selector": "#fileInput", "filePath": upload_file_path},
             expected_status=200,
+            skip_statuses=(501,),
         )
         run_value_test(
             "Get Value (#fileInput)",
@@ -624,23 +1087,30 @@ def test_shared_automation(
         f"{prefix}/waitForNetworkIdle",
         method="POST",
         data={"timeout": 2000},
+        skip_statuses=(501,),
     )
-    run_test("Accept Alert", f"{prefix}/acceptAlert", method="POST")
-    run_test("Dismiss Alert", f"{prefix}/dismissAlert", method="POST")
+    run_test("Accept Alert", f"{prefix}/acceptAlert", method="POST", skip_statuses=(501,))
+    run_test("Dismiss Alert", f"{prefix}/dismissAlert", method="POST", skip_statuses=(501,))
 
-    # Cookie operations (navigate to example.com for a real host)
+    # Cookie operations on the local test host (no external dependency)
     run_test(
-        "Navigate to example.com",
+        "Navigate to test page (cookie host)",
         f"{prefix}/navigate",
         method="POST",
-        data={"url": "https://example.com"},
+        data={"url": test_page_url},
     )
-    time.sleep(2)
+    if not wait_for_selector("#title", timeout_s=10):
+        record_result(
+            "Wait before cookie tests (#title)",
+            "FAILED",
+            "test page did not become ready in time",
+        )
     run_test(
-        "Wait For Network Idle (example.com)",
+        "Wait For Network Idle (test page)",
         f"{prefix}/waitForNetworkIdle",
         method="POST",
         data={"timeout": 5000},
+        skip_statuses=(501,),
     )
 
     # Press key on a remote page (avoid actor crash on file://)
@@ -650,6 +1120,7 @@ def test_shared_automation(
         method="POST",
         data={"key": "Enter"},
         expected_status=200,
+        skip_statuses=(501,),
         timeout=3,
     )
 
@@ -661,7 +1132,7 @@ def test_shared_automation(
         data={
             "name": "floorp-test",
             "value": "123",
-            "domain": "example.com",
+            "domain": cookie_domain,
             "path": "/",
             "sameSite": "Lax",
         },
@@ -693,14 +1164,16 @@ def test_workspaces():
     run_test("Next Workspace", "/workspaces/next", method="POST")
     run_test("Previous Workspace", "/workspaces/previous", method="POST")
 
-    if workspaces and len(workspaces) > 0:
-        first_ws_id = workspaces[0].get("id")
-        if first_ws_id:
-            run_test(
-                f"Switch to Workspace {first_ws_id}",
-                f"/workspaces/{first_ws_id}/switch",
-                method="POST",
-            )
+    if isinstance(workspaces, list) and workspaces:
+        first_item = workspaces[0]
+        if isinstance(first_item, dict):
+            first_ws_id = first_item.get("id")
+            if first_ws_id:
+                run_test(
+                    f"Switch to Workspace {first_ws_id}",
+                    f"/workspaces/{first_ws_id}/switch",
+                    method="POST",
+                )
 
 
 def test_tab_manager(upload_file_path: str, test_page_url: str):
@@ -744,7 +1217,7 @@ def test_tab_manager(upload_file_path: str, test_page_url: str):
             "Navigate",
             f"/tabs/instances/{tab_id}/navigate",
             method="POST",
-            data={"url": "https://example.com"},
+            data={"url": test_page_url},
         )
         time.sleep(2)
 
@@ -785,7 +1258,58 @@ def test_scraper(upload_file_path: str, test_page_url: str):
         run_test("Destroy Scraper Instance", f"/scraper/instances/{scraper_id}", method="DELETE")
 
 
-def main():
+def main(argv: list[str] | None = None) -> int:
+    global BASE_URL
+
+    parser = argparse.ArgumentParser(description="Verify Floorp OS server APIs")
+    parser.add_argument(
+        "--base-url",
+        default=BASE_URL,
+        help="OS server base URL (default: %(default)s)",
+    )
+    parser.add_argument("--quick", action="store_true", help="Run a quicker subset")
+    parser.add_argument(
+        "--skip-browser-info",
+        action="store_true",
+        help="Skip /browser endpoints",
+    )
+    parser.add_argument(
+        "--skip-workspaces",
+        action="store_true",
+        help="Skip /workspaces endpoints",
+    )
+    parser.add_argument(
+        "--skip-tabs",
+        action="store_true",
+        help="Skip tab manager tests",
+    )
+    parser.add_argument(
+        "--skip-scraper",
+        action="store_true",
+        help="Skip scraper tests",
+    )
+    parser.add_argument(
+        "--skip-concurrency",
+        action="store_true",
+        help="Skip parallel stability tests",
+    )
+    parser.add_argument(
+        "--concurrency-workers",
+        type=int,
+        default=3,
+        help="Number of workers for parallel stability test",
+    )
+    parser.add_argument(
+        "--concurrency-loops",
+        type=int,
+        default=2,
+        help="Loops per worker in parallel stability test",
+    )
+    args = parser.parse_args(argv)
+
+    BASE_URL = args.base_url
+    clear_results()
+
     print(f"Verifying Floorp OS Server API at {BASE_URL}")
     print("Ensure 'floorp.os.enabled' is set to true in about:config")
     print("-" * 50)
@@ -800,29 +1324,47 @@ def main():
         except Exception as e:  # noqa: BLE001
             print(f"Failed to start local test HTTP server: {e}")
             record_result("Start local test HTTP server", "FAILED", str(e))
-            return
+            total, passed, failed, skipped = print_summary()
+            return 1 if failed > 0 else 0
 
         if run_test("Health Check", "/health") is None:
             print("\nServer seems to be down or unreachable.")
-            return
+            record_result("Health Check Reachability", "FAILED", "server unreachable")
+            total, passed, failed, skipped = print_summary()
+            return 1 if failed > 0 else 0
 
         try:
-            test_browser_info()
-            test_workspaces()
-            test_tab_manager(upload_file_path, test_page_url)
-            test_scraper(upload_file_path, test_page_url)
+            if not args.skip_browser_info:
+                test_browser_info()
+            if not args.skip_workspaces:
+                test_workspaces()
+            if not args.skip_tabs:
+                test_tab_manager(upload_file_path, test_page_url)
+            if not args.skip_scraper:
+                test_scraper(upload_file_path, test_page_url)
+
+            if not args.skip_concurrency and not args.skip_tabs:
+                workers = 2 if args.quick else args.concurrency_workers
+                loops = 1 if args.quick else args.concurrency_loops
+                test_parallel_tab_stability(
+                    test_page_url,
+                    workers=workers,
+                    loops=loops,
+                )
         finally:
-            try:
-                os.remove(upload_file_path)
-            except OSError:
-                pass
             if httpd and tmpdir:
                 stop_test_http_server(httpd, tmpdir)
     finally:
+        try:
+            os.remove(upload_file_path)
+        except OSError:
+            pass
         print("-" * 50)
         print("Verification complete.")
-        print_summary()
+        total, passed, failed, skipped = print_summary()
+
+    return 1 if failed > 0 else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

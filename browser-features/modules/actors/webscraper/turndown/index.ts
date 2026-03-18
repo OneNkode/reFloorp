@@ -15,3 +15,19 @@
 
 export { TurndownService } from "./turndown.ts";
 export type { TurndownServiceOptions } from "./turndown.ts";
+export type { ExtendedNode } from "./node.ts";
+export {
+  generateFingerprint,
+  formatFingerprintComment,
+  formatSelectorMapEntry,
+  parseFingerprintsFromMarkdown,
+  parseSelectorMap,
+  findElementByFingerprint,
+  findElementsByFingerprint,
+  resolveElementLocator,
+  type ElementFingerprint,
+  type FingerprintOptions,
+  type ParsedFingerprint,
+  type SelectorMapEntry,
+  type ElementLocator,
+} from "./fingerprint.ts";

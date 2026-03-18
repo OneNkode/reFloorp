@@ -15,6 +15,7 @@ import type {
 } from "../router.sys.mts";
 import type { ErrorResponse } from "../_os-plugin/api-spec/types.ts";
 import type { TabManagerAPI } from "./types.ts";
+import type { ActionResponse } from "../shared/types.ts";
 import { registerCommonAutomationRoutes } from "../shared/routes.sys.mts";
 
 // Lazy import of TabManager module
@@ -84,7 +85,7 @@ export function registerTabRoutes(api: NamespaceBuilder): void {
     });
 
     // Destroy instance (async cleanup, does not close the tab)
-    t.delete("/instances/:id", async (ctx: RouterContext) => {
+    t.delete<unknown, ActionResponse>("/instances/:id", async (ctx: RouterContext) => {
       const { TabManagerServices } = TabManagerModule();
       try {
         await TabManagerServices.destroyInstance(ctx.params.id);
@@ -99,7 +100,7 @@ export function registerTabRoutes(api: NamespaceBuilder): void {
     });
 
     // Close tab (destroys instance AND closes the actual browser tab)
-    t.post("/instances/:id/close", async (ctx: RouterContext) => {
+    t.post<unknown, ActionResponse>("/instances/:id/close", async (ctx: RouterContext) => {
       const { TabManagerServices } = TabManagerModule();
       try {
         await TabManagerServices.closeTab(ctx.params.id);

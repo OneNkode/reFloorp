@@ -37,7 +37,13 @@ interface BrowserTab {
 interface GBrowser {
   tabs: BrowserTab[];
   selectedTab: BrowserTab;
-  tabContainer: EventTarget & { addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void };
+  tabContainer: EventTarget & {
+    addEventListener(
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+      options?: boolean | AddEventListenerOptions,
+    ): void;
+  };
   addTab(
     url: string,
     options: {
@@ -137,8 +143,6 @@ class TabManager {
     { tab: BrowserTab; browser: XULBrowserElement }
   > = new Map();
 
-  private readonly _defaultActionDelay = 500;
-
   // Set of instance IDs currently being destroyed (TOCTOU guard)
   private _destroying: Set<string> = new Set();
 
@@ -154,12 +158,20 @@ class TabManager {
     Services.obs.addObserver(
       {
         observe: (subject: nsISupports) => {
-          // deno-lint-ignore no-explicit-any
-          const win = (subject as any).QueryInterface(Ci.nsIDOMWindow) as Window;
+          let win: Window;
+          try {
+            // deno-lint-ignore no-explicit-any
+            win = (subject as any).QueryInterface(Ci.nsIDOMWindow) as Window;
+          } catch {
+            return;
+          }
           win.addEventListener(
             "load",
             () => {
-              if ((win as unknown as { gBrowser?: GBrowser }).gBrowser?.tabContainer) {
+              if (
+                (win as unknown as { gBrowser?: GBrowser }).gBrowser
+                  ?.tabContainer
+              ) {
                 this._setupWindowListeners(
                   win as Window & { gBrowser: GBrowser },
                 );
@@ -176,8 +188,13 @@ class TabManager {
     Services.obs.addObserver(
       {
         observe: (subject: nsISupports) => {
-          // deno-lint-ignore no-explicit-any
-          const win = (subject as any).QueryInterface(Ci.nsIDOMWindow) as Window;
+          let win: Window;
+          try {
+            // deno-lint-ignore no-explicit-any
+            win = (subject as any).QueryInterface(Ci.nsIDOMWindow) as Window;
+          } catch {
+            return;
+          }
           this._listenedWindows.delete(win);
         },
       },
@@ -210,7 +227,7 @@ class TabManager {
         // Clean up GlobalHTTPTracker for this tab's browsing context
         const bcid = entry.browser.browsingContext?.id;
         if (bcid !== undefined && bcid !== null) {
-          GlobalHTTPTracker.activeRequests.delete(bcid);
+          GlobalHTTPTracker.clearForContext(bcid);
         }
         this._browserInstances.delete(instanceId);
         TAB_MANAGER_ACTOR_SETS.delete(entry.browser);
@@ -219,7 +236,9 @@ class TabManager {
           tab.removeAttribute("data-floorp-os-automated");
           tab.removeAttribute("data-floorp-os-instance-id");
         }
-        console.log(`TabManager: Auto-cleaned instance ${instanceId} on tab close`);
+        console.log(
+          `TabManager: Auto-cleaned instance ${instanceId} on tab close`,
+        );
         break;
       }
     }
@@ -300,14 +319,6 @@ class TabManager {
         browserId: number;
       },
     };
-  }
-
-  private async _delayForUser(delay?: number): Promise<void> {
-    const ms = delay ?? this._defaultActionDelay;
-    if (ms <= 0) {
-      return;
-    }
-    await new Promise<void>((resolve) => setTimeout(resolve, ms));
   }
 
   private _focusInstance(instanceId: string): void {
@@ -489,9 +500,10 @@ class TabManager {
           await new Promise((r) => setTimeout(r, 100));
           const freshEntry = this._getEntry(instanceId);
           if (!freshEntry) break;
-          actor = freshEntry.browser.browsingContext?.currentWindowGlobal?.getActor(
-            "NRWebScraper",
-          ) as WebScraperActor | undefined;
+          actor =
+            freshEntry.browser.browsingContext?.currentWindowGlobal?.getActor(
+              "NRWebScraper",
+            ) as WebScraperActor | undefined;
           if (actor) break;
         }
       }
@@ -524,12 +536,13 @@ class TabManager {
 
     const browser = tab.linkedBrowser;
     await this._waitForLoad(browser, url);
-    await this._delayForUser();
 
     // Check tab is still alive (user may have closed it during load)
     const currentBrowser = tab.linkedBrowser;
-    if (!currentBrowser?.ownerGlobal ||
-      (currentBrowser.ownerGlobal as Window).closed) {
+    if (
+      !currentBrowser?.ownerGlobal ||
+      (currentBrowser.ownerGlobal as Window).closed
+    ) {
       throw new Error("Tab was closed during load");
     }
 
@@ -553,7 +566,8 @@ class TabManager {
     let targetTab: BrowserTab | undefined;
     for (const win of getBrowserWindows()) {
       targetTab = win.gBrowser.tabs.find(
-        (tab: BrowserTab) => tab.linkedBrowser.browserId.toString() === browserId,
+        (tab: BrowserTab) =>
+          tab.linkedBrowser.browserId.toString() === browserId,
       );
       if (targetTab) break;
     }
@@ -575,8 +589,6 @@ class TabManager {
 
     // Show control overlay to block user interaction
     await this._queryActor(instanceId, "WebScraper:ShowControlOverlay");
-
-    await this._delayForUser();
 
     return instanceId;
   }
@@ -615,8 +627,9 @@ class TabManager {
     instanceId: string,
   ): Promise<TabInstanceInfo | null> {
     const { tab, browser } = this._getInstance(instanceId);
-    const win = (browser.ownerGlobal as Window & { gBrowser: GBrowser })
-      ?? (getBrowserWindow() as Window & { gBrowser: GBrowser });
+    const win =
+      (browser.ownerGlobal as Window & { gBrowser: GBrowser }) ??
+      (getBrowserWindow() as Window & { gBrowser: GBrowser });
     const gBrowser = win?.gBrowser;
     if (!gBrowser) {
       return null;
@@ -735,7 +748,6 @@ class TabManager {
 
     // Check if browser.loadURI is defined before calling it
     if (typeof browser.loadURI === "function") {
-      await this._delayForUser();
       browser.loadURI(Services.io.newURI(url), loadURIOptions);
     } else {
       // Throw an error if loadURI is not available
@@ -746,12 +758,16 @@ class TabManager {
     const freshEntry = this._getEntry(instanceId);
     const loadBrowser = freshEntry?.browser ?? browser;
     await this._waitForLoad(loadBrowser, url);
-    await this._delayForUser();
 
     // Re-show control overlay after navigation (new document, new actor)
-    const overlayResult = await this._queryActor(instanceId, "WebScraper:ShowControlOverlay");
+    const overlayResult = await this._queryActor(
+      instanceId,
+      "WebScraper:ShowControlOverlay",
+    );
     if (!overlayResult) {
-      console.warn("TabManager: Failed to re-show control overlay after navigation");
+      console.warn(
+        "TabManager: Failed to re-show control overlay after navigation",
+      );
     }
   }
 
@@ -764,8 +780,13 @@ class TabManager {
     return this._queryActor<string>(instanceId, "WebScraper:GetHTML");
   }
 
-  public getText(instanceId: string): Promise<string | null> {
-    return this._queryActor<string>(instanceId, "WebScraper:GetText");
+  public getText(
+    instanceId: string,
+    includeSelectorMap: boolean = false,
+  ): Promise<string | null> {
+    return this._queryActor<string>(instanceId, "WebScraper:GetText", {
+      includeSelectorMap,
+    });
   }
 
   public getElements(instanceId: string, selector: string): Promise<string[]> {
@@ -814,6 +835,36 @@ class TabManager {
     });
   }
 
+  /**
+   * Resolve an element fingerprint to a CSS selector
+   * This allows LLMs to use fingerprints from Markdown output to interact with elements
+   */
+  public resolveFingerprint(
+    instanceId: string,
+    fingerprint: string,
+  ): Promise<string | null> {
+    return this._queryActor<string>(
+      instanceId,
+      "WebScraper:ResolveFingerprint",
+      {
+        fingerprint,
+      },
+    );
+  }
+
+  /**
+   * Clear all visual effects (highlights, overlays, info panels)
+   * Useful before fingerprint operations to get a clean DOM state
+   */
+  public async clearEffects(instanceId: string): Promise<boolean> {
+    try {
+      await this._queryActor(instanceId, "WebScraper:ClearEffects");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   public async clickElement(
     instanceId: string,
     selector: string,
@@ -827,7 +878,6 @@ class TabManager {
       },
     );
 
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -902,7 +952,6 @@ class TabManager {
       },
     );
 
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -926,7 +975,6 @@ class TabManager {
         typingDelayMs: options.typingDelayMs,
       },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -945,7 +993,6 @@ class TabManager {
         key,
       },
     );
-    await this._delayForUser(500);
     return result;
   }
 
@@ -966,7 +1013,6 @@ class TabManager {
         filePath,
       },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1024,7 +1070,6 @@ class TabManager {
       "WebScraper:ClearInput",
       { selector },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1041,7 +1086,6 @@ class TabManager {
       },
     );
 
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1062,7 +1106,6 @@ class TabManager {
         optionValue: value,
       },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1083,7 +1126,6 @@ class TabManager {
         checked,
       },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1100,7 +1142,6 @@ class TabManager {
       "WebScraper:HoverElement",
       { selector },
     );
-    await this._delayForUser(2000);
     return result;
   }
 
@@ -1117,7 +1158,6 @@ class TabManager {
       "WebScraper:ScrollToElement",
       { selector },
     );
-    await this._delayForUser(1000);
     return result;
   }
 
@@ -1141,7 +1181,6 @@ class TabManager {
       "WebScraper:DoubleClick",
       { selector },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1158,7 +1197,6 @@ class TabManager {
       "WebScraper:RightClick",
       { selector },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1175,7 +1213,6 @@ class TabManager {
       "WebScraper:Focus",
       { selector },
     );
-    await this._delayForUser(1000);
     return result;
   }
 
@@ -1196,7 +1233,6 @@ class TabManager {
         targetSelector,
       },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1775,7 +1811,6 @@ class TabManager {
       "WebScraper:SetInnerHTML",
       { selector, innerHTML: html },
     );
-    await this._delayForUser(2000);
     return result;
   }
 
@@ -1793,7 +1828,6 @@ class TabManager {
       "WebScraper:SetTextContent",
       { selector, textContent: text },
     );
-    await this._delayForUser(2000);
     return result;
   }
 
@@ -1812,7 +1846,6 @@ class TabManager {
       "WebScraper:DispatchEvent",
       { selector, eventType, eventOptions: options },
     );
-    await this._delayForUser(1000);
     return result;
   }
 
@@ -1837,11 +1870,8 @@ class TabManager {
       "WebScraper:DispatchTextInput",
       { selector, text },
     );
-    await this._delayForUser(1000);
     return result;
   }
-
-
 }
 
 // Export a singleton instance of the TabManager service

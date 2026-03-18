@@ -21,10 +21,28 @@ export class DOMReadOperations {
     return this.deps.getDocument();
   }
 
-  private markdownConverter = new TurndownService({
+  /** Shared converter for plain Markdown (no fingerprints) */
+  private readonly plainConverter = new TurndownService({
     headingStyle: "atx",
     codeBlockStyle: "fenced",
     bulletListMarker: "-",
+  });
+
+  /** Shared converter for Markdown with embedded fingerprints */
+  private readonly fingerprintConverter = new TurndownService({
+    headingStyle: "atx",
+    codeBlockStyle: "fenced",
+    bulletListMarker: "-",
+    enableFingerprints: true,
+  });
+
+  /** Shared converter for Markdown with fingerprints + selector map */
+  private readonly fingerprintWithMapConverter = new TurndownService({
+    headingStyle: "atx",
+    codeBlockStyle: "fenced",
+    bulletListMarker: "-",
+    enableFingerprints: true,
+    fingerprintSelectorMap: true,
   });
 
   getHTML(): string | null {
@@ -128,10 +146,7 @@ export class DOMReadOperations {
         }
       }
 
-      const walker = doc.createTreeWalker(
-        doc.body,
-        NodeFilter.SHOW_ELEMENT,
-      );
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT);
 
       let node: Node | null;
       while ((node = walker.nextNode())) {
@@ -191,12 +206,9 @@ export class DOMReadOperations {
         "inspectGetValue",
         { selector },
       );
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        { action: "InspectPeek" },
-        elementInfo,
-        true,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, { action: "InspectPeek" }, elementInfo, true)
+        .catch(() => {});
 
       const win = this.contentWindow;
       if (win && element instanceof win.HTMLSelectElement) {
@@ -327,47 +339,67 @@ export class DOMReadOperations {
   }
 
   /**
-   * Gets the page content as Markdown.
-   * Uses Turndown library to convert HTML to Markdown format.
-   * Removes script/style/noscript elements before conversion.
-   * Note: hidden elements (display:none) are still included in the output,
-   * as Turndown converts them to Markdown. This is intentional for LLM consumption.
+   * Gets the page content as Markdown, optionally with element fingerprints.
    *
-   * Also includes content from iframes and Shadow DOM for dynamic sites.
+   * When fingerprints are enabled, each block element is prefixed with an
+   * HTML comment containing its fingerprint: `<!--fp:abc12345-->`
+   *
+   * If includeSelectorMap is true, a selector map is appended at the end:
+   * `fp:abc12345def67890 | p | "Preview text"`
+   *
+   * @param includeSelectorMap If true, enables fingerprints and appends element mappings
+   * @param enableFingerprints If true, embeds fingerprints in the Markdown output (default: true)
+   * @returns Markdown content, or null on error
    */
-  getText(): string | null {
+  getText(
+    includeSelectorMap: boolean = false,
+    enableFingerprints: boolean = true,
+  ): string | null {
     try {
       const doc = this.document;
       if (!doc?.body) return null;
 
+      // Select the appropriate cached converter
+      let converter: TurndownService;
+      if (includeSelectorMap) {
+        converter = this.fingerprintWithMapConverter;
+      } else if (enableFingerprints) {
+        converter = this.fingerprintConverter;
+      } else {
+        converter = this.plainConverter;
+      }
+
       // Clone body to avoid modifying the original document
       const bodyClone = doc.body.cloneNode(true) as Element;
 
-      // Remove non-content elements (scripts, styles, noscript) before conversion
+      // Remove non-content elements before conversion:
+      // - script, style, noscript: standard non-visible elements
+      // - [class^="nr-webscraper-"]: highlight overlays injected by automation
       const elementsToRemove = bodyClone.querySelectorAll(
-        "script, style, noscript",
+        'script, style, noscript, [class^="nr-webscraper-"], [id="nr-webscraper-highlight-style"]',
       );
       for (const elem of Array.from(elementsToRemove)) {
         elem.remove();
       }
 
-      // Convert body element to Markdown using TurndownService
-      const markdown = this.markdownConverter.turndown(bodyClone);
-
+      const markdown = converter.turndown(bodyClone);
       if (!markdown) return null;
 
       let result = markdown;
 
       // Also include text from Shadow DOM (for React/Web Components sites)
+      // Note: Shadow DOM content doesn't get fingerprints
       const shadowText = this.getTextFromShadowDOM(doc.body);
       if (shadowText) {
-        result += "\n\n---\n\n#### Shadow DOM Content\n\n" + shadowText.trim() + "\n\n";
+        result +=
+          "\n\n---\n\n#### Shadow DOM Content\n\n" + shadowText.trim() + "\n\n";
       }
 
       // Also include text from iframes (for Gmail, email clients, etc.)
       const iframeText = this.getTextFromIframes(doc);
       if (iframeText) {
-        result += "\n\n---\n\n#### iframe Content\n\n" + iframeText.trim() + "\n\n";
+        result +=
+          "\n\n---\n\n#### iframe Content\n\n" + iframeText.trim() + "\n\n";
       }
 
       // Normalize whitespace
@@ -378,6 +410,13 @@ export class DOMReadOperations {
       console.error("DOMReadOperations: Error getting text:", e);
       return null;
     }
+  }
+
+  /**
+   * @deprecated Use getText(includeSelectorMap) instead
+   */
+  getTextWithFingerprints(includeSelectorMap: boolean = false): string | null {
+    return this.getText(includeSelectorMap);
   }
 
   /**
