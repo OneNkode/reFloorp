@@ -275,15 +275,18 @@ export function registerCommonAutomationRoutes(
   );
 
   // Get element by text content
-  ns.get("/instances/:id/elementByText", safeRoute(async (ctx: RouterContext) => {
-    const txt = ctx.searchParams.get("text") ?? "";
-    if (!txt) {
-      return { status: 400, body: { error: "text parameter required" } };
-    }
-    const service = getService();
-    const elem = await service.getElementByText(ctx.params.id, txt);
-    return { status: 200, body: { element: elem } };
-  }));
+  ns.get<unknown, { element?: string | null; error?: string }>(
+    "/instances/:id/elementByText",
+    safeRoute(async (ctx: RouterContext) => {
+      const txt = ctx.searchParams.get("text") ?? "";
+      if (!txt) {
+        return { status: 400, body: { error: "text parameter required" } };
+      }
+      const service = getService();
+      const elem = await service.getElementByText(ctx.params.id, txt);
+      return { status: 200, body: { element: elem } };
+    }),
+  );
 
   // Get element text content by selector or fingerprint
   ns.get<unknown, TextResponse>(
