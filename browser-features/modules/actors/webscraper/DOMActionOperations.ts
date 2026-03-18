@@ -6,10 +6,6 @@
 import type { DOMOpsDeps } from "./DOMDeps.ts";
 import { unwrapElement, unwrapWindow } from "./utils.ts";
 
-const { setTimeout: timerSetTimeout } = ChromeUtils.importESModule(
-  "resource://gre/modules/Timer.sys.mjs",
-);
-
 /**
  * Interaction-oriented DOM utilities (click/hover/keys/drag)
  */
@@ -61,7 +57,7 @@ export class DOMActionOperations {
 
       const options = this.deps.highlightManager.getHighlightOptions("Click");
 
-      const effectPromise = this.deps.highlightManager
+      this.deps.highlightManager
         .applyHighlight(element, options, elementInfo)
         .catch(() => {});
 
@@ -165,14 +161,7 @@ export class DOMActionOperations {
         }
       }
 
-      const success = stateChanged || clickDispatched;
-
-      await Promise.race([
-        effectPromise,
-        new Promise((resolve) => timerSetTimeout(resolve, 300)),
-      ]);
-
-      return success;
+      return stateChanged || clickDispatched;
     } catch (e) {
       console.error("DOMActionOperations: Error clicking element:", e);
       return Promise.resolve(false);
@@ -192,11 +181,9 @@ export class DOMActionOperations {
       );
       const options = this.deps.highlightManager.getHighlightOptions("Inspect");
 
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       const rect = element.getBoundingClientRect();
       const centerX = rect.left + rect.width / 2;
@@ -269,11 +256,9 @@ export class DOMActionOperations {
 
       element.scrollIntoView({ behavior: "smooth", block: "center" });
 
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       return true;
     } catch (e) {
@@ -295,11 +280,9 @@ export class DOMActionOperations {
       );
       const options = this.deps.highlightManager.getHighlightOptions("Click");
 
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       this.deps.eventDispatcher.scrollIntoViewIfNeeded(element);
       this.deps.eventDispatcher.focusElementSoft(element);
@@ -363,11 +346,9 @@ export class DOMActionOperations {
       );
       const options = this.deps.highlightManager.getHighlightOptions("Click");
 
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       this.deps.eventDispatcher.scrollIntoViewIfNeeded(element);
       this.deps.eventDispatcher.focusElementSoft(element);
@@ -425,11 +406,9 @@ export class DOMActionOperations {
       );
       const options = this.deps.highlightManager.getHighlightOptions("Input");
 
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       const win = this.contentWindow;
       const rawWin = unwrapWindow(win);
@@ -548,16 +527,12 @@ export class DOMActionOperations {
       );
       const options = this.deps.highlightManager.getHighlightOptions("Input");
 
-      await this.deps.highlightManager.applyHighlight(
-        source,
-        options,
-        elementInfo,
-      );
-      await this.deps.highlightManager.applyHighlight(
-        target,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(source, options, elementInfo)
+        .catch(() => {});
+      this.deps.highlightManager
+        .applyHighlight(target, options, elementInfo)
+        .catch(() => {});
 
       const sourceRect = source.getBoundingClientRect();
       const targetRect = target.getBoundingClientRect();

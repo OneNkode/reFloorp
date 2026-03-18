@@ -48,14 +48,6 @@ class webScraper {
   private _instanceId!: string;
   private _windowlessBrowser!: nsIWindowlessBrowser;
 
-  // Use shared constants for timing
-  private readonly _defaultActionDelay = AutomationConstants.DEFAULT_ACTION_DELAY_MS;
-  private readonly _formActionDelay = AutomationConstants.FORM_ACTION_DELAY_MS;
-  private readonly _hoverDelay = AutomationConstants.HOVER_DELAY_MS;
-  private readonly _scrollDelay = AutomationConstants.SCROLL_DELAY_MS;
-  private readonly _focusDelay = AutomationConstants.FOCUS_DELAY_MS;
-  private readonly _keyPressDelay = AutomationConstants.KEY_PRESS_DELAY_MS;
-
   /**
    * Try to get NRWebScraper actor with small retries to avoid race after navigation
    */
@@ -79,14 +71,6 @@ class webScraper {
   /**
    * Delays execution for user interaction visibility
    */
-  private async _delayForUser(delay?: number): Promise<void> {
-    const ms = delay ?? this._defaultActionDelay;
-    if (ms <= 0) {
-      return;
-    }
-    await new Promise<void>((resolve) => setTimeout(resolve, ms));
-  }
-
   constructor() {
     this._initializeWindowlessBrowser();
   }
@@ -130,7 +114,6 @@ class webScraper {
     this._instanceId = await crypto.randomUUID();
     this._browserInstances.set(this._instanceId, browser);
     SCRAPER_ACTOR_SETS.add(browser);
-    await this._delayForUser();
     return this._instanceId;
   }
 
@@ -197,7 +180,6 @@ class webScraper {
 
     const uri = Services.io.newURI(url);
 
-    await this._delayForUser();
     if (typeof browser.loadURI === "function") {
       browser.loadURI(uri, loadURIOptions);
     } else {
@@ -301,7 +283,6 @@ class webScraper {
     } catch {
       // ignore
     }
-    await this._delayForUser();
   }
 
   public getURI(instanceId: string): Promise<string | null> {
@@ -617,7 +598,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:ClickElement", {
       selector,
     })) as boolean;
-    await this._delayForUser(this._formActionDelay);
     return result;
   }
 
@@ -812,7 +792,6 @@ class webScraper {
       typingMode: options.typingMode,
       typingDelayMs: options.typingDelayMs,
     })) as boolean;
-    await this._delayForUser(this._formActionDelay);
     return result;
   }
 
@@ -838,7 +817,6 @@ class webScraper {
       typingMode: options.typingMode,
       typingDelayMs: options.typingDelayMs,
     })) as boolean;
-    await this._delayForUser(this._formActionDelay);
     return result;
   }
 
@@ -856,7 +834,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:PressKey", {
       key,
     })) as boolean;
-    await this._delayForUser(this._keyPressDelay);
     return result;
   }
 
@@ -879,7 +856,6 @@ class webScraper {
       selector,
       filePath,
     })) as boolean;
-    await this._delayForUser(this._formActionDelay);
     return result;
   }
 
@@ -995,7 +971,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:ClearInput", {
       selector,
     })) as boolean;
-    await this._delayForUser(this._formActionDelay);
     return result;
   }
 
@@ -1013,7 +988,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:Submit", {
       selector,
     })) as boolean;
-    await this._delayForUser(this._formActionDelay);
     return result;
   }
 
@@ -1041,7 +1015,6 @@ class webScraper {
       selector,
       optionValue: value,
     })) as boolean;
-    await this._delayForUser(this._formActionDelay);
     return result;
   }
 
@@ -1069,7 +1042,6 @@ class webScraper {
       selector,
       checked,
     })) as boolean;
-    await this._delayForUser(this._formActionDelay);
     return result;
   }
 
@@ -1094,7 +1066,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:HoverElement", {
       selector,
     })) as boolean;
-    await this._delayForUser(this._hoverDelay);
     return result;
   }
 
@@ -1115,7 +1086,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:ScrollToElement", {
       selector,
     })) as boolean;
-    await this._delayForUser(this._scrollDelay);
     return result;
   }
 
@@ -1150,7 +1120,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:DoubleClick", {
       selector,
     })) as boolean;
-    await this._delayForUser(this._formActionDelay);
     return result;
   }
 
@@ -1171,7 +1140,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:RightClick", {
       selector,
     })) as boolean;
-    await this._delayForUser(this._formActionDelay);
     return result;
   }
 
@@ -1192,7 +1160,6 @@ class webScraper {
     const result = (await actor.sendQuery("WebScraper:Focus", {
       selector,
     })) as boolean;
-    await this._delayForUser(this._focusDelay);
     return result;
   }
 
@@ -1215,7 +1182,6 @@ class webScraper {
       selector: sourceSelector,
       targetSelector,
     })) as boolean;
-    await this._delayForUser(this._formActionDelay);
     return result;
   }
 
@@ -1574,7 +1540,6 @@ class webScraper {
       selector,
       innerHTML: html,
     })) as boolean;
-    await this._delayForUser(this._hoverDelay);
     return result;
   }
 
@@ -1597,7 +1562,6 @@ class webScraper {
       selector,
       textContent: text,
     })) as boolean;
-    await this._delayForUser(this._hoverDelay);
     return result;
   }
 
@@ -1622,7 +1586,6 @@ class webScraper {
       eventType,
       eventOptions: options,
     })) as boolean;
-    await this._delayForUser(this._scrollDelay);
     return result;
   }
 
@@ -1652,7 +1615,6 @@ class webScraper {
       selector,
       text,
     })) as boolean;
-    await this._delayForUser(this._scrollDelay);
     return result;
   }
 }

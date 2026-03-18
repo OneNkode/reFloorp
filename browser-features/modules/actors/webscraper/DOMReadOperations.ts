@@ -146,10 +146,7 @@ export class DOMReadOperations {
         }
       }
 
-      const walker = doc.createTreeWalker(
-        doc.body,
-        NodeFilter.SHOW_ELEMENT,
-      );
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ELEMENT);
 
       let node: Node | null;
       while ((node = walker.nextNode())) {
@@ -209,12 +206,9 @@ export class DOMReadOperations {
         "inspectGetValue",
         { selector },
       );
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        { action: "InspectPeek" },
-        elementInfo,
-        true,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, { action: "InspectPeek" }, elementInfo, true)
+        .catch(() => {});
 
       const win = this.contentWindow;
       if (win && element instanceof win.HTMLSelectElement) {
@@ -357,7 +351,10 @@ export class DOMReadOperations {
    * @param enableFingerprints If true, embeds fingerprints in the Markdown output (default: true)
    * @returns Markdown content, or null on error
    */
-  getText(includeSelectorMap: boolean = false, enableFingerprints: boolean = true): string | null {
+  getText(
+    includeSelectorMap: boolean = false,
+    enableFingerprints: boolean = true,
+  ): string | null {
     try {
       const doc = this.document;
       if (!doc?.body) return null;
@@ -394,13 +391,15 @@ export class DOMReadOperations {
       // Note: Shadow DOM content doesn't get fingerprints
       const shadowText = this.getTextFromShadowDOM(doc.body);
       if (shadowText) {
-        result += "\n\n---\n\n#### Shadow DOM Content\n\n" + shadowText.trim() + "\n\n";
+        result +=
+          "\n\n---\n\n#### Shadow DOM Content\n\n" + shadowText.trim() + "\n\n";
       }
 
       // Also include text from iframes (for Gmail, email clients, etc.)
       const iframeText = this.getTextFromIframes(doc);
       if (iframeText) {
-        result += "\n\n---\n\n#### iframe Content\n\n" + iframeText.trim() + "\n\n";
+        result +=
+          "\n\n---\n\n#### iframe Content\n\n" + iframeText.trim() + "\n\n";
       }
 
       // Normalize whitespace

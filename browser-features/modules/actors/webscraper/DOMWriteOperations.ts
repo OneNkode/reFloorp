@@ -99,11 +99,9 @@ export class DOMWriteOperations {
         const highlightOptions =
           this.deps.highlightManager.getHighlightOptions("Input");
 
-        await this.deps.highlightManager.applyHighlight(
-          element,
-          highlightOptions,
-          elementInfo,
-        );
+        this.deps.highlightManager
+          .applyHighlight(element, highlightOptions, elementInfo)
+          .catch(() => {});
       }
 
       const win = this.contentWindow;
@@ -230,11 +228,9 @@ export class DOMWriteOperations {
       );
       const options = this.deps.highlightManager.getHighlightOptions("Input");
 
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       const win = this.contentWindow;
       if (!win) return false;
@@ -296,11 +292,9 @@ export class DOMWriteOperations {
         const highlightOptions =
           this.deps.highlightManager.getHighlightOptions("Input");
 
-        await this.deps.highlightManager.applyHighlight(
-          element,
-          highlightOptions,
-          elementInfo,
-        );
+        this.deps.highlightManager
+          .applyHighlight(element, highlightOptions, elementInfo)
+          .catch(() => {});
       }
 
       this.deps.eventDispatcher.scrollIntoViewIfNeeded(element);
@@ -341,11 +335,9 @@ export class DOMWriteOperations {
       );
       const options = this.deps.highlightManager.getHighlightOptions("Click");
 
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       this.deps.eventDispatcher.scrollIntoViewIfNeeded(element);
       this.deps.eventDispatcher.focusElementSoft(element);
@@ -437,11 +429,9 @@ export class DOMWriteOperations {
         },
       );
       const options = this.deps.highlightManager.getHighlightOptions("Input");
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       type MozFileInput = HTMLInputElement & {
         mozSetFileArray?: (files: File[]) => void;
@@ -725,11 +715,9 @@ export class DOMWriteOperations {
       );
       const options = this.deps.highlightManager.getHighlightOptions("Input");
 
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       // SECURITY WARNING: This method directly sets innerHTML which can execute malicious scripts.
       // Only use with trusted content. For user-provided content, consider using textContent instead.
@@ -830,11 +818,9 @@ export class DOMWriteOperations {
         },
       );
       const options = this.deps.highlightManager.getHighlightOptions("Input");
-      await this.deps.highlightManager.applyHighlight(
-        element,
-        options,
-        elementInfo,
-      );
+      this.deps.highlightManager
+        .applyHighlight(element, options, elementInfo)
+        .catch(() => {});
 
       const win = this.contentWindow;
       const rawWin = unwrapWindow(win);

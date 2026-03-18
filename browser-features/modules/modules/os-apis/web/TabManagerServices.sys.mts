@@ -143,8 +143,6 @@ class TabManager {
     { tab: BrowserTab; browser: XULBrowserElement }
   > = new Map();
 
-  private readonly _defaultActionDelay = 500;
-
   // Set of instance IDs currently being destroyed (TOCTOU guard)
   private _destroying: Set<string> = new Set();
 
@@ -321,14 +319,6 @@ class TabManager {
         browserId: number;
       },
     };
-  }
-
-  private async _delayForUser(delay?: number): Promise<void> {
-    const ms = delay ?? this._defaultActionDelay;
-    if (ms <= 0) {
-      return;
-    }
-    await new Promise<void>((resolve) => setTimeout(resolve, ms));
   }
 
   private _focusInstance(instanceId: string): void {
@@ -546,7 +536,6 @@ class TabManager {
 
     const browser = tab.linkedBrowser;
     await this._waitForLoad(browser, url);
-    await this._delayForUser();
 
     // Check tab is still alive (user may have closed it during load)
     const currentBrowser = tab.linkedBrowser;
@@ -600,8 +589,6 @@ class TabManager {
 
     // Show control overlay to block user interaction
     await this._queryActor(instanceId, "WebScraper:ShowControlOverlay");
-
-    await this._delayForUser();
 
     return instanceId;
   }
@@ -761,7 +748,6 @@ class TabManager {
 
     // Check if browser.loadURI is defined before calling it
     if (typeof browser.loadURI === "function") {
-      await this._delayForUser();
       browser.loadURI(Services.io.newURI(url), loadURIOptions);
     } else {
       // Throw an error if loadURI is not available
@@ -772,7 +758,6 @@ class TabManager {
     const freshEntry = this._getEntry(instanceId);
     const loadBrowser = freshEntry?.browser ?? browser;
     await this._waitForLoad(loadBrowser, url);
-    await this._delayForUser();
 
     // Re-show control overlay after navigation (new document, new actor)
     const overlayResult = await this._queryActor(
@@ -893,7 +878,6 @@ class TabManager {
       },
     );
 
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -968,7 +952,6 @@ class TabManager {
       },
     );
 
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -992,7 +975,6 @@ class TabManager {
         typingDelayMs: options.typingDelayMs,
       },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1011,7 +993,6 @@ class TabManager {
         key,
       },
     );
-    await this._delayForUser(500);
     return result;
   }
 
@@ -1032,7 +1013,6 @@ class TabManager {
         filePath,
       },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1090,7 +1070,6 @@ class TabManager {
       "WebScraper:ClearInput",
       { selector },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1107,7 +1086,6 @@ class TabManager {
       },
     );
 
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1128,7 +1106,6 @@ class TabManager {
         optionValue: value,
       },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1149,7 +1126,6 @@ class TabManager {
         checked,
       },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1166,7 +1142,6 @@ class TabManager {
       "WebScraper:HoverElement",
       { selector },
     );
-    await this._delayForUser(2000);
     return result;
   }
 
@@ -1183,7 +1158,6 @@ class TabManager {
       "WebScraper:ScrollToElement",
       { selector },
     );
-    await this._delayForUser(1000);
     return result;
   }
 
@@ -1207,7 +1181,6 @@ class TabManager {
       "WebScraper:DoubleClick",
       { selector },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1224,7 +1197,6 @@ class TabManager {
       "WebScraper:RightClick",
       { selector },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1241,7 +1213,6 @@ class TabManager {
       "WebScraper:Focus",
       { selector },
     );
-    await this._delayForUser(1000);
     return result;
   }
 
@@ -1262,7 +1233,6 @@ class TabManager {
         targetSelector,
       },
     );
-    await this._delayForUser(3500);
     return result;
   }
 
@@ -1841,7 +1811,6 @@ class TabManager {
       "WebScraper:SetInnerHTML",
       { selector, innerHTML: html },
     );
-    await this._delayForUser(2000);
     return result;
   }
 
@@ -1859,7 +1828,6 @@ class TabManager {
       "WebScraper:SetTextContent",
       { selector, textContent: text },
     );
-    await this._delayForUser(2000);
     return result;
   }
 
@@ -1878,7 +1846,6 @@ class TabManager {
       "WebScraper:DispatchEvent",
       { selector, eventType, eventOptions: options },
     );
-    await this._delayForUser(1000);
     return result;
   }
 
@@ -1903,7 +1870,6 @@ class TabManager {
       "WebScraper:DispatchTextInput",
       { selector, text },
     );
-    await this._delayForUser(1000);
     return result;
   }
 }

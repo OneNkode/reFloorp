@@ -10,10 +10,6 @@
 import type { FillFormOptions, WebScraperContext } from "./types.ts";
 import { DOMOperations } from "./DOMOperations.ts";
 
-const { setTimeout: timerSetTimeout } = ChromeUtils.importESModule(
-  "resource://gre/modules/Timer.sys.mjs",
-);
-
 /**
  * Helper class for form operations
  */
@@ -60,18 +56,21 @@ export class FormOperations {
       // Ensure document is minimally ready before filling
       await this.domOps.waitForReady(5000);
 
-      // 初期情報パネルを表示
+      // 初期情報パネルを表示 (fire-and-forget)
       if (fieldCount > 1 && doc) {
-        await highlightManager.showInfoPanel(
-          action,
-          undefined,
-          await translationHelper.translate("formSummary", {
-            count: fieldCount,
-          }),
-          fieldCount,
-          0,
-          fieldCount,
-        );
+        translationHelper
+          .translate("formSummary", { count: fieldCount })
+          .then((msg) =>
+            highlightManager.showInfoPanel(
+              action,
+              undefined,
+              msg,
+              fieldCount,
+              0,
+              fieldCount,
+            ),
+          )
+          .catch(() => {});
       }
 
       for (let i = 0; i < selectors.length; i++) {
@@ -109,22 +108,21 @@ export class FormOperations {
             },
           );
           if (fieldCount > 1 && doc) {
-            await highlightManager.showInfoPanel(
-              action,
-              undefined,
-              elementInfo,
-              fieldCount,
-              i + 1,
-              fieldCount,
-            );
+            highlightManager
+              .showInfoPanel(
+                action,
+                undefined,
+                elementInfo,
+                fieldCount,
+                i + 1,
+                fieldCount,
+              )
+              .catch(() => {});
           }
 
-          await highlightManager.applyHighlight(
-            element,
-            highlightOptions,
-            elementInfo,
-            false,
-          );
+          highlightManager
+            .applyHighlight(element, highlightOptions, elementInfo, false)
+            .catch(() => {});
 
           let success = false;
           if (
@@ -141,13 +139,6 @@ export class FormOperations {
           }
           if (!success) {
             allFilled = false;
-          }
-
-          // 各フィールド入力後に1.2秒の遅延
-          if (i < selectors.length - 1) {
-            await new Promise<void>((resolve) => {
-              timerSetTimeout(() => resolve(), 1200);
-            });
           }
         } else {
           console.warn(
@@ -251,7 +242,9 @@ export class FormOperations {
       });
       const options = highlightManager.getHighlightOptions("Submit");
 
-      await highlightManager.applyHighlight(root ?? form, options, elementInfo);
+      highlightManager
+        .applyHighlight(root ?? form, options, elementInfo)
+        .catch(() => {});
 
       try {
         const maybeRequestSubmit = (
