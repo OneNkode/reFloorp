@@ -275,7 +275,7 @@ export function registerCommonAutomationRoutes(
   );
 
   // Get element by text content
-  ns.get<unknown, { element?: string | null; error?: string }>(
+  ns.get<unknown, ElementResponse>(
     "/instances/:id/elementByText",
     safeRoute(async (ctx: RouterContext) => {
       const txt = ctx.searchParams.get("text") ?? "";
@@ -284,7 +284,7 @@ export function registerCommonAutomationRoutes(
       }
       const service = getService();
       const elem = await service.getElementByText(ctx.params.id, txt);
-      return { status: 200, body: { element: elem } };
+      return { status: 200, body: elem != null ? { element: elem } : {} };
     }),
   );
 
