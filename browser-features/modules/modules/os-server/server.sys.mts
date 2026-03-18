@@ -228,11 +228,12 @@ class LocalHttpServer implements nsIServerSocketListener {
   // nsIServerSocketListener
   onSocketAccepted(_serv: nsIServerSocket, transport: nsISocketTransport) {
     const handle = async () => {
-      let input: nsIAsyncInputStream | null = null;
-      let output: nsIAsyncOutputStream | null = null;
+      // Open streams as non-null consts; keep nullable handles for finally cleanup
+      const input = transport.openInputStream(0, 0, 0);
+      const output = transport.openOutputStream(0, 0, 0);
+      let cleanupInput: nsIInputStream | null = input;
+      let cleanupOutput: nsIOutputStream | null = output;
       try {
-        input = transport.openInputStream(0, 0, 0);
-        output = transport.openOutputStream(0, 0, 0);
         const sis = Cc["@mozilla.org/scriptableinputstream;1"].createInstance(
           Ci.nsIScriptableInputStream,
         );
@@ -309,8 +310,8 @@ class LocalHttpServer implements nsIServerSocketListener {
         // Route (async) — route handler is responsible for writing and closing streams
         await this.routeAsync(req, output, input);
         // Prevent finally from double-closing
-        input = null;
-        output = null;
+        cleanupInput = null;
+        cleanupOutput = null;
       } catch (e) {
         try {
           if (output) {
@@ -321,8 +322,8 @@ class LocalHttpServer implements nsIServerSocketListener {
         }
         err("socket error: ", e);
       } finally {
-        try { output?.close(); } catch { /* ignore */ }
-        try { input?.close(); } catch { /* ignore */ }
+        try { cleanupOutput?.close(); } catch { /* ignore */ }
+        try { cleanupInput?.close(); } catch { /* ignore */ }
       }
     };
     // Fire and forget
@@ -428,9 +429,6 @@ class LocalHttpServer implements nsIServerSocketListener {
             }
           },
         );
-        // Prevent onSocketAccepted's finally from double-closing stream-owned handles
-        input = null;
-        output = null;
         return;
       }
 
