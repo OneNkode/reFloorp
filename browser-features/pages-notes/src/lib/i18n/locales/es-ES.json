@@ -1,44 +1,67 @@
 {
     "title": {
-        "default": "Notas {{productName}}"
+        "default": "Notas de {{productName}}"
     },
     "notes": {
-        "welcome": "¡Bienvenido a Notas {{productName}}!",
-        "welcomeContent": "¡Bienvenido a Notas {{productName}}! Te explicamos cómo utilizarlo.\n\nNotas {{productName}} es una función para tomar notas que puede sincronizarse entre dispositivos. Para activar la sincronización, debes iniciar sesión en {{productName}} con una cuenta de Mozilla.\nLas notas {{productName}} se almacenan en {{productName}} y se sincronizan entre dispositivos utilizando Firefox Sync. Firefox Sync cifra el contenido de la sincronización con la contraseña de tu cuenta de Mozilla, para que nadie pueda conocer su contenido.",
+        "welcome": "¡Bienvenido a Notas de {{productName}}!",
+        "welcomeContent": "¡Bienvenido a Notas de {{productName}}! Así se usa.\n\nNotas de {{productName}} es una función para tomar notas que se puede sincronizar entre dispositivos. Para habilitar la sincronización, inicie sesión en {{productName}} con una cuenta de Mozilla.\nLas notas se almacenan en {{productName}} y se sincronizan mediante Firefox Sync, que cifra el contenido con su contraseña de Mozilla.",
         "new": "Nueva nota",
         "reorder": "Reordenar",
         "done": "Listo",
         "emptyTitle": "Sin título",
-        "emptyContent": "No hay contenido",
-        "noNotesSelected": "Selecciona una nota o crea una nueva",
+        "emptyContent": "Sin contenido",
+        "noNotesSelected": "Seleccione una nota o cree una nueva",
         "createNew": "Crear nueva nota",
         "titlePlaceholder": "Título",
         "loading": "Cargando notas...",
-        "delete": "Borrar"
+        "delete": "Eliminar",
+        "empty": "No hay notas. Haga clic en «Nueva nota» para crear una.",
+        "deleteConfirmTitle": "Eliminar nota",
+        "deleteConfirmMessage": "¿Está seguro de que desea eliminar esta nota? Esta acción no se puede deshacer.",
+        "deleteConfirm": "Eliminar",
+        "deleteCancel": "Cancelar",
+        "noteList": "Lista de notas",
+        "search": "Buscar notas",
+        "clearSearch": "Borrar búsqueda",
+        "noSearchResults": "No se encontraron notas"
     },
     "editor": {
         "bold": "Negrita",
-        "italic": "Itálica",
+        "italic": "Cursiva",
         "underline": "Subrayado",
         "strikethrough": "Tachado",
-        "bulletList": "Lista de viñetas",
+        "bulletList": "Lista con viñetas",
         "numberedList": "Lista numerada",
         "alignLeft": "Alinear a la izquierda",
-        "alignCenter": "Alinear al centro",
+        "alignCenter": "Centrar",
         "alignRight": "Alinear a la derecha",
-        "quote": "Citar",
+        "quote": "Cita",
         "heading1": "Encabezado 1",
         "heading2": "Encabezado 2",
         "heading3": "Encabezado 3",
+        "undo": "Deshacer",
+        "redo": "Rehacer",
+        "history": "Historial",
+        "toolbar": "Barra de formato",
+        "headings": "Encabezados",
+        "textFormatting": "Formato de texto",
+        "lists": "Listas",
+        "alignment": "Alineación",
+        "contentArea": "Contenido de la nota",
         "placeholder": "Empieza a escribir...",
         "image": "Insertar imagen"
     },
-    "error": {
-        "loadFailed": "Error al cargar los datos de la nota",
-        "saveFailed": "Error al cargar los datos de la nota",
-        "indexOutOfRange": "Índice {{index}} está fuera de rango"
-    },
     "common": {
         "close": "Cerrar"
+    },
+    "save": {
+        "saving": "Guardando...",
+        "saved": "Guardado",
+        "error": "Error al guardar"
+    },
+    "error": {
+        "loadFailed": "No se pudieron cargar las notas",
+        "saveFailed": "No se pudieron guardar las notas",
+        "indexOutOfRange": "El índice {{index}} está fuera de rango"
     }
 }

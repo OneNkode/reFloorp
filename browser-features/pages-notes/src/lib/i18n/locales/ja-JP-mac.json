@@ -5,16 +5,25 @@
     "notes": {
         "welcome": "{{productName}} Notes へようこそ！",
         "welcomeContent": "{{productName}} Notes へようこそ！使い方はこちら。\n\n{{productName}} Notes はデバイス間で同期できるメモ機能です。同期を有効にするには、Mozilla アカウントで {{productName}} にサインインする必要があります。\n{{productName}} Notes は {{productName}} に保存され、Firefox Sync を使用してデバイス間で同期されます。Firefox Sync は同期の内容を Mozilla アカウントのパスワードで暗号化するため、誰にもその内容を知られることはありません。",
-        "new": "新規メモ",
+        "new": "新しいノート",
         "reorder": "並べ替え",
         "done": "完了",
-        "emptyTitle": "名称未設定",
+        "emptyTitle": "無題",
         "emptyContent": "内容なし",
-        "noNotesSelected": "ノートを選択、または新規ノートを作成",
-        "createNew": "新規ノートを作成",
+        "noNotesSelected": "ノートを選択、または新しいノートを作成",
+        "createNew": "新しいノートを作成",
         "titlePlaceholder": "タイトル",
         "loading": "ノートを読み込み中...",
-        "delete": "削除"
+        "delete": "削除",
+        "empty": "メモがありません。「新規メモ」ボタンをクリックして作成してください。",
+        "deleteConfirmTitle": "ノートを削除",
+        "deleteConfirmMessage": "このノートを削除してもよろしいですか？この操作は元に戻せません。",
+        "deleteConfirm": "削除",
+        "deleteCancel": "キャンセル",
+        "noteList": "ノートリスト",
+        "search": "ノートを検索",
+        "clearSearch": "検索をクリア",
+        "noSearchResults": "検索結果がありません"
     },
     "editor": {
         "bold": "太字",
@@ -30,15 +39,29 @@
         "heading1": "見出し 1",
         "heading2": "見出し 2",
         "heading3": "見出し 3",
+        "undo": "取り消す",
+        "redo": "やり直す",
+        "history": "履歴",
+        "toolbar": "書式ツールバー",
+        "headings": "見出し",
+        "textFormatting": "テキスト書式",
+        "lists": "リスト",
+        "alignment": "配置",
+        "contentArea": "ノート内容",
         "placeholder": "入力を開始...",
         "image": "画像を挿入"
+    },
+    "common": {
+        "close": "閉じる"
+    },
+    "save": {
+        "saving": "保存中...",
+        "saved": "保存済み",
+        "error": "保存に失敗しました"
     },
     "error": {
         "loadFailed": "ノートデータの読み込みに失敗しました",
         "saveFailed": "ノートデータの保存に失敗しました",
         "indexOutOfRange": "インデックス {{index}} は範囲外です"
-    },
-    "common": {
-        "close": "閉じる"
     }
 }

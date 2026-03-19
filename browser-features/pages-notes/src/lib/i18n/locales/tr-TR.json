@@ -1,44 +1,67 @@
 {
     "title": {
-        "default": "{{productName}} Notlar"
+        "default": "{{productName}} Notes"
     },
     "notes": {
-        "welcome": "{{productName}} Notlar'a hoş geldiniz!",
-        "welcomeContent": "{{productName}} Notlar'a hoş geldiniz! İşte nasıl kullanacağınız:\n\n{{productName}} Notlar, cihazlarınız arasında senkronize edilebilen bir not alma özelliğidir. Senkronizasyonu etkinleştirmek için bir Mozilla hesabıyla {{productName}}'da oturum açmanız gerekir.\n{{productName}} Notlar {{productName}}'da saklanır ve Firefox Sync kullanılarak cihazlar arasında senkronize edilir. Firefox Sync, senkronizasyon içeriğini Mozilla hesap parolanızla şifreler, böylece başkaları içeriğinizi göremez.",
-        "new": "Yeni Not",
-        "reorder": "Yeniden sırala",
-        "done": "Bitti",
-        "emptyTitle": "Başlıksız",
-        "emptyContent": "İçerik yok",
-        "noNotesSelected": "Bir not seçin veya yeni bir tane oluşturun",
-        "createNew": "Yeni Not Oluştur",
-        "titlePlaceholder": "Başlık",
-        "loading": "Notlar yükleniyor...",
-        "delete": "Sil"
+        "welcome": "Welcome to {{productName}} Notes!",
+        "welcomeContent": "Welcome to {{productName}} Notes! Here's how to use it.\n\n{{productName}} Notes is a note-taking feature that can be synchronized across devices. To enable synchronization, you need to sign in to {{productName}} with a Mozilla account.\n{{productName}} Notes are stored in {{productName}} and synchronized across devices using Firefox Sync. Firefox Sync encrypts the content of the synchronization with your Mozilla account password, so no one can know its contents.",
+        "new": "New Note",
+        "reorder": "Reorder",
+        "done": "Done",
+        "emptyTitle": "Untitled",
+        "emptyContent": "No content",
+        "noNotesSelected": "Select a note or create a new one",
+        "createNew": "Create New Note",
+        "titlePlaceholder": "Title",
+        "loading": "Loading notes...",
+        "delete": "Delete",
+        "empty": "No notes yet. Click \"New Note\" to create one.",
+        "deleteConfirmTitle": "Delete Note",
+        "deleteConfirmMessage": "Are you sure you want to delete this note? This action cannot be undone.",
+        "deleteConfirm": "Delete",
+        "deleteCancel": "Cancel",
+        "noteList": "Notes list",
+        "search": "Search notes",
+        "clearSearch": "Clear search",
+        "noSearchResults": "No notes match your search"
     },
     "editor": {
-        "bold": "Kalın",
-        "italic": "İtalik",
-        "underline": "Altı Çizili",
-        "strikethrough": "Üstü Çizili",
-        "bulletList": "Madde İşaretli Liste",
-        "numberedList": "Numaralandırılmış Liste",
-        "alignLeft": "Sola Hizala",
-        "alignCenter": "Ortala",
-        "alignRight": "Sağa Hizala",
-        "quote": "Alıntıla",
-        "heading1": "Başlık 1",
-        "heading2": "Başlık 2",
-        "heading3": "Başlık 3",
-        "placeholder": "Yazmaya başlayın...",
-        "image": "Resim ekle"
-    },
-    "error": {
-        "loadFailed": "Not verileri yüklenemedi",
-        "saveFailed": "Not verileri kaydedilemedi",
-        "indexOutOfRange": "Dizin {{index}} aralık dışında"
+        "bold": "Bold",
+        "italic": "Italic",
+        "underline": "Underline",
+        "strikethrough": "Strikethrough",
+        "bulletList": "Bullet List",
+        "numberedList": "Numbered List",
+        "alignLeft": "Align Left",
+        "alignCenter": "Align Center",
+        "alignRight": "Align Right",
+        "quote": "Quote",
+        "heading1": "Heading 1",
+        "heading2": "Heading 2",
+        "heading3": "Heading 3",
+        "undo": "Undo",
+        "redo": "Redo",
+        "history": "History",
+        "toolbar": "Formatting toolbar",
+        "headings": "Headings",
+        "textFormatting": "Text formatting",
+        "lists": "Lists",
+        "alignment": "Alignment",
+        "contentArea": "Note content",
+        "placeholder": "Start writing...",
+        "image": "Insert image"
     },
     "common": {
-        "close": "Kapat"
+        "close": "Close"
+    },
+    "save": {
+        "saving": "Saving...",
+        "saved": "Saved",
+        "error": "Save failed"
+    },
+    "error": {
+        "loadFailed": "Failed to load note data",
+        "saveFailed": "Failed to save note data",
+        "indexOutOfRange": "Index {{index}} is out of range"
     }
 }

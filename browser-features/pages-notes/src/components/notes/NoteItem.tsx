@@ -67,13 +67,20 @@ export const NoteItem = memo(function NoteItem({ note, isSelected, onSelect, onD
     };
 
     const formattedDate = useMemo(() => {
-        return new Intl.DateTimeFormat(i18n.language, {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-        }).format(new Date(note.updatedAt));
+        // i18n.language may contain non-BCP47 tags like "ja-JP-mac" (Mozilla-specific).
+        // Strip the trailing variant to get a valid Intl locale.
+        const locale = i18n.language.replace(/-mac$/, "");
+        try {
+            return new Intl.DateTimeFormat(locale, {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            }).format(new Date(note.updatedAt));
+        } catch {
+            return new Date(note.updatedAt).toLocaleString();
+        }
     }, [note.updatedAt, i18n.language]);
 
     const contentPreview = useMemo(
@@ -100,6 +107,11 @@ export const NoteItem = memo(function NoteItem({ note, isSelected, onSelect, onD
                         : 'hover:bg-base-200 border-base-content/5'
                     }`}
                 onClick={() => onSelect(note)}
+                onContextMenu={(e) => {
+                    if (isReorderMode) return;
+                    e.preventDefault();
+                    onDelete(note.id);
+                }}
                 {...(isReorderMode ? listeners : {})}
             >
                 <div className="flex justify-between items-center">

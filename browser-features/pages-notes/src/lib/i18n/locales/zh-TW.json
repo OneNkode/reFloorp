@@ -3,42 +3,65 @@
         "default": "{{productName}} 筆記"
     },
     "notes": {
-        "welcome": "歡迎來到 {{productName}} 筆記！",
-        "welcomeContent": "歡迎使用 {{productName}} 筆記！以下是使用方法。\n\n{{productName}} 筆記是一項可跨裝置同步的記事功能。若要啟用同步功能，您需要使用 Mozilla 帳戶登入 {{productName}} 。\n{{productName}} 筆記儲存於 {{productName}} ，並使用 Firefox Sync 跨裝置同步處理。Firefox Sync 會以你的 Mozilla 帳號密碼加密同步處理的內容，因此任何人都無法知道其內容。",
+        "welcome": "歡迎使用 {{productName}} 筆記！",
+        "welcomeContent": "歡迎使用 {{productName}} 筆記！以下是使用方法。\n\n{{productName}} 筆記是一個可在裝置間同步的筆記功能。要啟用同步，您需要使用 Mozilla 帳號登入 {{productName}}。\n筆記儲存在 {{productName}} 中，透過 Firefox Sync 在裝置間同步。Firefox Sync 使用您的 Mozilla 帳號密碼加密同步內容。",
         "new": "新增筆記",
         "reorder": "重新排序",
         "done": "完成",
-        "emptyTitle": "未命名",
+        "emptyTitle": "無標題",
         "emptyContent": "無內容",
-        "noNotesSelected": "選取筆記或建立新筆記",
+        "noNotesSelected": "選擇一個筆記或建立新筆記",
         "createNew": "建立新筆記",
         "titlePlaceholder": "標題",
-        "loading": "載入筆記中……",
-        "delete": "刪除"
+        "loading": "正在載入筆記...",
+        "delete": "刪除",
+        "empty": "尚無筆記。點擊「新增筆記」建立一個。",
+        "deleteConfirmTitle": "刪除筆記",
+        "deleteConfirmMessage": "確定要刪除此筆記嗎？此操作無法復原。",
+        "deleteConfirm": "刪除",
+        "deleteCancel": "取消",
+        "noteList": "筆記清單",
+        "search": "搜尋筆記",
+        "clearSearch": "清除搜尋",
+        "noSearchResults": "未找到符合的筆記"
     },
     "editor": {
         "bold": "粗體",
         "italic": "斜體",
         "underline": "底線",
         "strikethrough": "刪除線",
-        "bulletList": "項目列表",
-        "numberedList": "編號列表",
+        "bulletList": "項目符號清單",
+        "numberedList": "編號清單",
         "alignLeft": "靠左對齊",
-        "alignCenter": "置中對齊",
+        "alignCenter": "置中",
         "alignRight": "靠右對齊",
         "quote": "引用",
-        "heading1": "一級標題",
-        "heading2": "二級標題",
-        "heading3": "三級標題",
+        "heading1": "標題 1",
+        "heading2": "標題 2",
+        "heading3": "標題 3",
+        "undo": "復原",
+        "redo": "重做",
+        "history": "歷程",
+        "toolbar": "格式工具列",
+        "headings": "標題",
+        "textFormatting": "文字格式",
+        "lists": "清單",
+        "alignment": "對齊",
+        "contentArea": "筆記內容",
         "placeholder": "開始輸入...",
         "image": "插入圖片"
     },
-    "error": {
-        "loadFailed": "載入筆記資料失敗",
-        "saveFailed": "儲存筆記資料失敗",
-        "indexOutOfRange": "索引 {{index}} 超出範圍"
-    },
     "common": {
         "close": "關閉"
+    },
+    "save": {
+        "saving": "儲存中...",
+        "saved": "已儲存",
+        "error": "儲存失敗"
+    },
+    "error": {
+        "loadFailed": "無法載入筆記資料",
+        "saveFailed": "無法儲存筆記資料",
+        "indexOutOfRange": "索引 {{index}} 超出範圍"
     }
 }
