@@ -2,14 +2,8 @@ import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, us
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { restrictToVerticalAxis, restrictToFirstScrollableAncestor } from '@dnd-kit/modifiers';
 import { NoteItem } from "./NoteItem";
-
-interface Note {
-    id: string;
-    title: string;
-    content: string;
-    createdAt: Date;
-    updatedAt: Date;
-}
+import { useTranslation } from "react-i18next";
+import type { Note } from "@/types/note.ts";
 
 interface NoteListProps {
     notes: Note[];
@@ -18,6 +12,7 @@ interface NoteListProps {
     onDeleteNote: (id: string) => void;
     onReorderNotes: (notes: Note[]) => void;
     isReorderMode: boolean;
+    emptyMessage?: string;
 }
 
 export const NoteList = ({
@@ -26,8 +21,10 @@ export const NoteList = ({
     onSelectNote,
     onDeleteNote,
     onReorderNotes,
-    isReorderMode
+    isReorderMode,
+    emptyMessage,
 }: NoteListProps) => {
+    const { t } = useTranslation();
     const sensors = useSensors(
         useSensor(PointerSensor),
         useSensor(KeyboardSensor, {
@@ -47,10 +44,15 @@ export const NoteList = ({
     };
 
     return (
-        <div className="flex-none overflow-y-auto h-1/3">
+        <div
+            className="overflow-y-auto min-h-24 max-h-[40%] shrink-0"
+            role="listbox"
+            aria-label={t("notes.noteList")}
+            onMouseDown={(e) => e.preventDefault()}
+        >
             {notes.length === 0 ? (
                 <div className="p-4 text-center text-base-content/70">
-                    メモがありません。「新規メモ」ボタンをクリックして作成してください。
+                    {emptyMessage ?? t("notes.empty")}
                 </div>
             ) : (
                 <div className="flex flex-col p-2">

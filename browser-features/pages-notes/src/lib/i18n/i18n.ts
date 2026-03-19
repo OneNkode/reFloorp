@@ -9,11 +9,25 @@ const translations = import.meta.glob("./locales/*.json", {
 
 // Convert glob imports to the format expected by i18next
 const modules: Record<string, Record<string, object>> = {};
+const availableLocales: string[] = [];
 for (const [path, content] of Object.entries(translations)) {
   const lng = path.match(/locales\/(.*)\.json/)![1];
   modules[lng] = {
     translations: content as object,
   };
+  availableLocales.push(lng);
+}
+
+// Map short language codes (e.g. "ja") to full locale tags (e.g. "ja-JP").
+// navigator.language often returns short codes, but locale files use full tags.
+// Prefer non-mac variants (ja-JP over ja-JP-mac).
+function resolveLocale(lng: string): string {
+  if (lng in modules) return lng;
+  return (
+    availableLocales.find((l) => l.startsWith(lng + "-") && !l.endsWith("-mac")) ??
+    availableLocales.find((l) => l.startsWith(lng + "-")) ??
+    lng
+  );
 }
 
 export async function initI18nextInstance() {
@@ -32,15 +46,16 @@ export async function initI18nextInstance() {
   }
 
   await i18n.init({
-    lng: "en-US",
     debug: false,
     resources: modules,
     defaultNS: "translations",
     ns: ["translations"],
     fallbackLng: "en-US",
+    supportedLngs: availableLocales,
     detection: {
       order: ["navigator", "querystring", "htmlTag"],
       caches: [],
+      convertDetectedLanguage: resolveLocale,
     },
     interpolation: {
       escapeValue: false,

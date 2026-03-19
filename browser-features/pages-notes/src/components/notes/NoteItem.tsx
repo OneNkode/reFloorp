@@ -1,15 +1,9 @@
+import { memo, useMemo } from "react";
 import { CSS } from "@dnd-kit/utilities";
 import { useSortable } from "@dnd-kit/sortable";
 import { MoveVertical, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-
-interface Note {
-    id: string;
-    title: string;
-    content: string;
-    createdAt: Date;
-    updatedAt: Date;
-}
+import type { Note } from "@/types/note.ts";
 
 interface NoteItemProps {
     note: Note;
@@ -19,14 +13,17 @@ interface NoteItemProps {
     isReorderMode: boolean;
 }
 
-interface LexicalNode {
-    text?: string;
-    children?: LexicalNode[];
-    [key: string]: any;
+import { extractPlainText } from "@/lib/extractText.ts";
+
+function extractContent(content: string, emptyLabel: string): string {
+    if (!content || content.length === 0) {
+        return emptyLabel;
+    }
+    return extractPlainText(content) || emptyLabel;
 }
 
-export const NoteItem = ({ note, isSelected, onSelect, onDelete, isReorderMode }: NoteItemProps) => {
-    const { t } = useTranslation();
+export const NoteItem = memo(function NoteItem({ note, isSelected, onSelect, onDelete, isReorderMode }: NoteItemProps) {
+    const { t, i18n } = useTranslation();
     const {
         attributes,
         listeners,
@@ -40,43 +37,27 @@ export const NoteItem = ({ note, isSelected, onSelect, onDelete, isReorderMode }
         transition,
     };
 
-    const formatDate = (date: Date) => {
-        return new Intl.DateTimeFormat('ja-JP', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-        }).format(date);
-    };
-
-    function extractFromNestedObject(obj: LexicalNode): string {
-        if (obj.text !== undefined) {
-            return obj.text;
-        }
-
-        if (!obj.children) {
-            return "";
-        }
-        return obj.children.map((child: LexicalNode) => extractFromNestedObject(child)).join("");
-    }
-
-    const extractContent = (content: string): string => {
-        if (!content || content.length === 0) {
-            return t("notes.emptyContent");
-        }
-
+    const formattedDate = useMemo(() => {
+        // i18n.language may contain non-BCP47 tags like "ja-JP-mac" (Mozilla-specific).
+        // Strip the trailing variant to get a valid Intl locale.
+        const locale = i18n.language.replace(/-mac$/, "");
         try {
-            const parsed = JSON.parse(content);
-            if (parsed.root) {
-                return extractFromNestedObject(parsed.root);
-            }
-            return String(parsed);
-        } catch (e) {
-            console.error("Failed to parse content:", e);
-            return content;
+            return new Intl.DateTimeFormat(locale, {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            }).format(new Date(note.updatedAt));
+        } catch {
+            return new Date(note.updatedAt).toLocaleString();
         }
-    };
+    }, [note.updatedAt, i18n.language]);
+
+    const contentPreview = useMemo(
+        () => extractContent(note.content, t("notes.emptyContent")),
+        [note.content, t],
+    );
 
     return (
         <div
@@ -87,7 +68,9 @@ export const NoteItem = ({ note, isSelected, onSelect, onDelete, isReorderMode }
         >
             <button
                 type="button"
-                className={`w-full flex flex-col p-2 rounded-lg border transition-colors ${isReorderMode
+                role="option"
+                aria-selected={isSelected}
+                className={`w-full flex flex-col px-2 py-1.5 rounded-lg border transition-colors text-sm ${isReorderMode
                     ? 'cursor-grab active:cursor-grabbing border-secondary/50'
                     : ''
                     } ${isSelected
@@ -95,19 +78,24 @@ export const NoteItem = ({ note, isSelected, onSelect, onDelete, isReorderMode }
                         : 'hover:bg-base-200 border-base-content/5'
                     }`}
                 onClick={() => onSelect(note)}
+                onContextMenu={(e) => {
+                    if (isReorderMode) return;
+                    e.preventDefault();
+                    onDelete(note.id);
+                }}
                 {...(isReorderMode ? listeners : {})}
             >
                 <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 min-w-0">
                         {isReorderMode && (
-                            <MoveVertical className="h-4 w-4 text-secondary" />
+                            <MoveVertical className="h-4 w-4 text-secondary shrink-0" />
                         )}
-                        <span className="font-medium truncate">{note.title}</span>
+                        <span className="font-medium truncate" title={note.title}>{note.title}</span>
                     </div>
                     {!isReorderMode && (
                         <button
                             type="button"
-                            className="btn btn-xs btn-ghost btn-circle opacity-70 hover:opacity-100"
+                            className="btn btn-xs btn-ghost btn-circle opacity-0 hover:opacity-100 focus-visible:opacity-100 shrink-0"
                             onClick={(e) => {
                                 e.stopPropagation();
                                 onDelete(note.id);
@@ -119,10 +107,10 @@ export const NoteItem = ({ note, isSelected, onSelect, onDelete, isReorderMode }
                     )}
                 </div>
                 <div className="flex justify-between flex-row items-center overflow-y-hidden">
-                    <span className="text-xs flex-1 text-base-content/70 truncate text-left">{extractContent(note.content)}</span>
-                    <span className="text-xs text-base-content/70">{formatDate(note.updatedAt)}</span>
+                    <span className="text-xs flex-1 text-base-content/70 truncate text-left min-w-0">{contentPreview}</span>
+                    <span className="text-xs text-base-content/70 shrink-0 ml-2">{formattedDate}</span>
                 </div>
             </button>
         </div>
     );
-};
+});
