@@ -3,67 +3,37 @@
         "default": "Notas do {{productName}}"
     },
     "notes": {
-        "welcome": "Bem-vindo ao Notas do {{productName}}!",
-        "welcomeContent": "Bem-vindo ao Notas do {{productName}}! Veja como usar.\n\nNotas do {{productName}} é um recurso de anotações sincronizável entre dispositivos. Para ativar a sincronização, faça login no {{productName}} com uma conta Mozilla.",
-        "new": "Nova nota",
+        "welcome": "Bem-vindo às {{productName}} Notas!",
+        "welcomeContent": "Bem-vindo ao {{productName}} Notes! Veja como usá-lo.\n\n{{productName}} O Notes é um recurso de anotações que pode ser sincronizado entre dispositivos. Para ativar a sincronização, é necessário fazer login em {{productName}} com uma conta Mozilla.\n{{productName}} As anotações são armazenadas em {{productName}} e sincronizadas entre dispositivos usando o Firefox Sync. O Firefox Sync criptografa o conteúdo da sincronização com a senha da sua conta Mozilla, de modo que ninguém pode saber o seu conteúdo.",
+        "new": "Nova anotação",
         "reorder": "Reordenar",
         "done": "Concluído",
         "emptyTitle": "Sem título",
         "emptyContent": "Sem conteúdo",
-        "noNotesSelected": "Selecione uma nota ou crie uma nova",
-        "createNew": "Criar nova nota",
+        "noNotesSelected": "Selecione uma anotação ou crie uma nova",
+        "createNew": "Criar Nova Anotação",
         "titlePlaceholder": "Título",
-        "loading": "Carregando notas...",
-        "delete": "Excluir",
-        "empty": "Nenhuma nota. Clique em \"Nova nota\" para criar uma.",
-        "deleteConfirmTitle": "Excluir nota",
-        "deleteConfirmMessage": "Tem certeza de que deseja excluir esta nota? Esta ação não pode ser desfeita.",
-        "deleteConfirm": "Excluir",
-        "deleteCancel": "Cancelar",
-        "noteList": "Lista de notas",
-        "search": "Pesquisar notas",
-        "clearSearch": "Limpar pesquisa",
-        "noSearchResults": "Nenhuma nota encontrada"
+        "loading": "Carregando anotações...",
+        "delete": "Excluir"
     },
     "editor": {
         "bold": "Negrito",
         "italic": "Itálico",
         "underline": "Sublinhado",
-        "strikethrough": "Tachado",
-        "bulletList": "Lista com marcadores",
+        "strikethrough": "Riscado",
+        "bulletList": "Lista de itens",
         "numberedList": "Lista numerada",
         "alignLeft": "Alinhar à esquerda",
-        "alignCenter": "Centralizar",
+        "alignCenter": "Alinhar ao centro",
         "alignRight": "Alinhar à direita",
         "quote": "Citação",
-        "heading1": "Título 1",
-        "heading2": "Título 2",
-        "heading3": "Título 3",
-        "undo": "Desfazer",
-        "redo": "Refazer",
-        "history": "Histórico",
-        "toolbar": "Barra de formatação",
-        "headings": "Títulos",
-        "textFormatting": "Formatação de texto",
-        "lists": "Listas",
-        "alignment": "Alinhamento",
-        "contentArea": "Conteúdo da nota",
-        "placeholder": "Comece a escrever...",
-        "image": "Inserir imagem"
-    },
-    "common": {
-        "close": "Fechar",
-        "confirm": "Confirmar",
-        "cancel": "Cancelar"
-    },
-    "save": {
-        "saving": "Salvando...",
-        "saved": "Salvo",
-        "error": "Falha ao salvar"
+        "heading1": "Cabeçalho 1",
+        "heading2": "Cabeçalho 2",
+        "heading3": "Cabeçalho 3"
     },
     "error": {
-        "loadFailed": "Não foi possível carregar as notas",
-        "saveFailed": "Não foi possível salvar as notas",
-        "indexOutOfRange": "Índice {{index}} fora do intervalo"
+        "loadFailed": "Falha ao carregar os dados da nota",
+        "saveFailed": "Falha ao salvar os dados da nota",
+        "indexOutOfRange": "O índice {{index}} está fora do alcance"
     }
 }
