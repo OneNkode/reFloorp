@@ -13,20 +13,22 @@ interface NoteItemProps {
     isReorderMode: boolean;
 }
 
-interface LexicalNode {
+interface EditorNode {
     text?: string;
-    children?: LexicalNode[];
+    children?: EditorNode[];
+    content?: EditorNode[];
     [key: string]: unknown;
 }
 
-function extractFromNestedObject(obj: LexicalNode): string {
-    if (obj.text !== undefined) {
-        return obj.text;
+function extractTextFromNode(node: EditorNode): string {
+    if (node.text !== undefined) {
+        return node.text;
     }
-    if (!obj.children) {
+    const children = node.children || node.content;
+    if (!children) {
         return "";
     }
-    return obj.children.map((child: LexicalNode) => extractFromNestedObject(child)).join("");
+    return children.map(extractTextFromNode).join("");
 }
 
 function extractContent(content: string, emptyLabel: string): string {
@@ -35,8 +37,13 @@ function extractContent(content: string, emptyLabel: string): string {
     }
     try {
         const parsed = JSON.parse(content);
+        // TipTap format
+        if (parsed.type === "doc") {
+            return extractTextFromNode(parsed) || emptyLabel;
+        }
+        // Lexical format (legacy)
         if (parsed.root) {
-            return extractFromNestedObject(parsed.root);
+            return extractTextFromNode(parsed.root) || emptyLabel;
         }
         return String(parsed);
     } catch {

@@ -47,7 +47,12 @@
         "textFormatting": "テキスト書式",
         "lists": "リスト",
         "alignment": "配置",
-        "contentArea": "ノート内容"
+        "contentArea": "ノート内容",
+        "placeholder": "入力を開始...",
+        "image": "画像を挿入"
+    },
+    "common": {
+        "close": "閉じる"
     },
     "save": {
         "saving": "保存中...",

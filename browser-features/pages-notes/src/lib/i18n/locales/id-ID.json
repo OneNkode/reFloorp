@@ -29,11 +29,16 @@
         "quote": "Kutipan",
         "heading1": "Tajuk 1",
         "heading2": "Tajuk 2",
-        "heading3": "Tajuk 3"
+        "heading3": "Tajuk 3",
+        "placeholder": "Mulai menulis...",
+        "image": "Sisipkan gambar"
     },
     "error": {
         "loadFailed": "Gagal memuat data catatan",
         "saveFailed": "Gagal menyimpan data catatan",
         "indexOutOfRange": "Indeks {{index}} di luar rentang"
+    },
+    "common": {
+        "close": "Tutup"
     }
 }

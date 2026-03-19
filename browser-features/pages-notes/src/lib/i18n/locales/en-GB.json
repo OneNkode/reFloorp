@@ -29,11 +29,16 @@
         "quote": "Quote",
         "heading1": "Heading 1",
         "heading2": "Heading 2",
-        "heading3": "Heading 3"
+        "heading3": "Heading 3",
+        "placeholder": "Start writing...",
+        "image": "Insert image"
     },
     "error": {
         "loadFailed": "Failed to load note data",
         "saveFailed": "Failed to save note data",
         "indexOutOfRange": "Index {{index}} is out of range"
+    },
+    "common": {
+        "close": "Close"
     }
 }

@@ -47,7 +47,12 @@
         "textFormatting": "Text formatting",
         "lists": "Lists",
         "alignment": "Alignment",
-        "contentArea": "Note content"
+        "contentArea": "Note content",
+        "placeholder": "Start writing...",
+        "image": "Insert image"
+    },
+    "common": {
+        "close": "Close"
     },
     "save": {
         "saving": "Saving...",

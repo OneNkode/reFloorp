@@ -29,11 +29,16 @@
         "quote": "Trích dẫn",
         "heading1": "Tiêu đề cấp 1",
         "heading2": "Tiêu đề cấp 2",
-        "heading3": "Tiêu đề cấp 3"
+        "heading3": "Tiêu đề cấp 3",
+        "placeholder": "Bắt đầu viết...",
+        "image": "Chèn hình ảnh"
     },
     "error": {
         "loadFailed": "Tải dữ liệu ghi chú thất bại",
         "saveFailed": "Lưu dữ liệu ghi chú thấy bị",
         "indexOutOfRange": "Vị trí {{index}} không hợp lệ"
+    },
+    "common": {
+        "close": "Đóng"
     }
 }

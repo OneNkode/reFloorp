@@ -29,11 +29,16 @@
         "quote": "Citação",
         "heading1": "Cabeçalho 1",
         "heading2": "Cabeçalho 2",
-        "heading3": "Cabeçalho 3"
+        "heading3": "Cabeçalho 3",
+        "placeholder": "Comece a escrever...",
+        "image": "Inserir imagem"
     },
     "error": {
         "loadFailed": "Falha ao carregar os dados da nota",
         "saveFailed": "Falha ao guardar os dados da nota",
         "indexOutOfRange": "O índice {{index}} está fora do intervalo"
+    },
+    "common": {
+        "close": "Fechar"
     }
 }

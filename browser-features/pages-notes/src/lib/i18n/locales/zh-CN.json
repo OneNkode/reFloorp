@@ -29,11 +29,16 @@
         "quote": "引用",
         "heading1": "标题 1",
         "heading2": "标题 2",
-        "heading3": "标题 3"
+        "heading3": "标题 3",
+        "placeholder": "开始输入...",
+        "image": "插入图片"
     },
     "error": {
         "loadFailed": "加载笔记数据失败",
         "saveFailed": "保存笔记数据失败",
         "indexOutOfRange": "{{index}} 索引超出范围"
+    },
+    "common": {
+        "close": "关闭"
     }
 }

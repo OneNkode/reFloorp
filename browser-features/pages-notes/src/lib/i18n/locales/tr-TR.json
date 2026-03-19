@@ -29,11 +29,16 @@
         "quote": "Alıntıla",
         "heading1": "Başlık 1",
         "heading2": "Başlık 2",
-        "heading3": "Başlık 3"
+        "heading3": "Başlık 3",
+        "placeholder": "Yazmaya başlayın...",
+        "image": "Resim ekle"
     },
     "error": {
         "loadFailed": "Not verileri yüklenemedi",
         "saveFailed": "Not verileri kaydedilemedi",
         "indexOutOfRange": "Dizin {{index}} aralık dışında"
+    },
+    "common": {
+        "close": "Kapat"
     }
 }

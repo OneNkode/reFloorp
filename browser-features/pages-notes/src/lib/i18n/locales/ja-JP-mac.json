@@ -29,11 +29,16 @@
         "quote": "引用",
         "heading1": "見出し 1",
         "heading2": "見出し 2",
-        "heading3": "見出し 3"
+        "heading3": "見出し 3",
+        "placeholder": "入力を開始...",
+        "image": "画像を挿入"
     },
     "error": {
         "loadFailed": "ノートデータの読み込みに失敗しました",
         "saveFailed": "ノートデータの保存に失敗しました",
         "indexOutOfRange": "インデックス {{index}} は範囲外です"
+    },
+    "common": {
+        "close": "閉じる"
     }
 }

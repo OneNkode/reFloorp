@@ -1,6 +1,4 @@
 import { rpc } from "./rpc/rpc.ts";
-import { LexicalEditor } from "lexical";
-import { $createParagraphNode, $createTextNode, $getRoot } from "lexical";
 
 const NOTES_PREF_NAME = "floorp.browser.note.memos";
 
@@ -58,47 +56,6 @@ export async function saveNotes(data: NotesData): Promise<void> {
     console.error("Failed to save note data:", e);
     throw e;
   }
-}
-
-export function serializeEditorToText(editor: LexicalEditor): string {
-  let text = "";
-
-  editor.getEditorState().read(() => {
-    const root = $getRoot();
-    const children = root.getChildren();
-    const textParts: string[] = [];
-
-    for (const child of children) {
-      const childText = child.getTextContent();
-      if (childText) {
-        textParts.push(childText);
-      }
-    }
-
-    text = textParts.join("\n");
-  });
-
-  return text;
-}
-
-export function deserializeTextToEditor(
-  text: string,
-  editor: LexicalEditor,
-): void {
-  editor.update(() => {
-    const root = $getRoot();
-    root.clear();
-
-    const lines = text.split("\n");
-
-    for (const line of lines) {
-      const paragraphNode = $createParagraphNode();
-      if (line.length > 0) {
-        paragraphNode.append($createTextNode(line));
-      }
-      root.append(paragraphNode);
-    }
-  });
 }
 
 export async function addNote(t: (key: string) => string, title: string, content: string): Promise<void> {

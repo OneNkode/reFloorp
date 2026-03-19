@@ -29,11 +29,16 @@
         "quote": "Citat",
         "heading1": "Rubrik 1",
         "heading2": "Rubrik 2",
-        "heading3": "Rubrik 3"
+        "heading3": "Rubrik 3",
+        "placeholder": "Börja skriva...",
+        "image": "Infoga bild"
     },
     "error": {
         "loadFailed": "Misslyckades med att ladda anteckningsdata",
         "saveFailed": "Misslyckades med att spara anteckningsdata",
         "indexOutOfRange": "Index {{index}} är utanför intervallet"
+    },
+    "common": {
+        "close": "Stäng"
     }
 }

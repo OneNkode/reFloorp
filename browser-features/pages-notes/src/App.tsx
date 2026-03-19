@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { NoteList } from "./components/notes/NoteList.tsx";
 import { RichTextEditor } from "./components/editor/RichTextEditor.tsx";
-import { SerializedEditorState, SerializedLexicalNode } from "lexical";
+import type { JSONContent } from "@tiptap/react";
 import { getNotes, NotesData, saveNotes } from "./lib/dataManager.ts";
 import { useTranslation } from "react-i18next";
 import { ConfirmModal } from "./components/common/ConfirmModal.tsx";
@@ -11,10 +11,7 @@ import type { Note } from "./types/note.ts";
 
 type SaveStatusType = "idle" | "saving" | "saved" | "error";
 
-let appRenderCount = 0;
 function App() {
-  appRenderCount++;
-  console.log(`[App] render #${appRenderCount}`);
   const { t } = useTranslation();
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
@@ -240,10 +237,8 @@ function App() {
     setTitle(note.title);
   }, [title]);
 
-  const handleEditorChange = useCallback((
-    editorState: SerializedEditorState<SerializedLexicalNode>,
-  ) => {
-    updateCurrentNote(JSON.stringify(editorState));
+  const handleEditorChange = useCallback((json: JSONContent) => {
+    updateCurrentNote(JSON.stringify(json));
   }, [updateCurrentNote]);
 
   return (

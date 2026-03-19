@@ -29,11 +29,16 @@
         "quote": "Citeren",
         "heading1": "Koptekst 1",
         "heading2": "Koptekst 2",
-        "heading3": "Koptekst 3"
+        "heading3": "Koptekst 3",
+        "placeholder": "Begin met schrijven...",
+        "image": "Afbeelding invoegen"
     },
     "error": {
         "loadFailed": "Notitiegegevens laden mislukt",
         "saveFailed": "Notitiegegevens opslaan mislukt",
         "indexOutOfRange": "Index {{index}} valt buiten het bereik"
+    },
+    "common": {
+        "close": "Sluiten"
     }
 }

@@ -29,11 +29,16 @@
         "quote": "Citar",
         "heading1": "Encabezado 1",
         "heading2": "Encabezado 2",
-        "heading3": "Encabezado 3"
+        "heading3": "Encabezado 3",
+        "placeholder": "Empieza a escribir...",
+        "image": "Insertar imagen"
     },
     "error": {
         "loadFailed": "Error al cargar los datos de la nota",
         "saveFailed": "Error al cargar los datos de la nota",
         "indexOutOfRange": "Índice {{index}} está fuera de rango"
+    },
+    "common": {
+        "close": "Cerrar"
     }
 }

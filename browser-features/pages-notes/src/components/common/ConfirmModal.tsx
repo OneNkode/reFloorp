@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -21,6 +22,7 @@ export function ConfirmModal({
   cancelText = "Cancel",
   confirmVariant = "btn-primary",
 }: ConfirmModalProps) {
+  const { t } = useTranslation();
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -55,7 +57,7 @@ export function ConfirmModal({
         </div>
       </div>
       <form method="dialog" className="modal-backdrop">
-        <button type="submit" aria-label="Close" />
+        <button type="submit" aria-label={t("common.close")} />
       </form>
     </dialog>
   );

@@ -1,114 +1,144 @@
-import { LexicalComposer } from "@lexical/react/LexicalComposer";
-import { ContentEditable } from "@lexical/react/LexicalContentEditable";
-import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
-import { editorConfig } from "./config.ts";
-import { Toolbar } from "./Toolbar.tsx";
+import { useEditor, EditorContent, ReactNodeViewRenderer, type JSONContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Underline from "@tiptap/extension-underline";
+import TextAlign from "@tiptap/extension-text-align";
+import Placeholder from "@tiptap/extension-placeholder";
+import Image from "@tiptap/extension-image";
+import { ResizableImage } from "./ResizableImage.tsx";
 
-import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
-import { ListPlugin } from "@lexical/react/LexicalListPlugin";
-import { CheckListPlugin } from "@lexical/react/LexicalCheckListPlugin";
-import { SerializedEditorState, SerializedLexicalNode } from "lexical";
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { $getRoot, $createParagraphNode, $createTextNode } from "lexical";
-import { useEffect, useRef, memo } from "react";
+const ResizableImageExtension = Image.extend({
+    addAttributes() {
+        return {
+            ...this.parent?.(),
+            width: {
+                default: null,
+                renderHTML: (attributes: Record<string, unknown>) => {
+                    if (!attributes.width) return {};
+                    return { width: attributes.width };
+                },
+            },
+        };
+    },
+    addNodeView() {
+        return ReactNodeViewRenderer(ResizableImage);
+    },
+});
 import { useTranslation } from "react-i18next";
+import { Toolbar } from "./Toolbar.tsx";
+import { migrateLexicalContent } from "../../lib/migrateLexicalToTiptap.ts";
+import { compressImage } from "../../lib/imageCompressor.ts";
+import { useMemo } from "react";
 
 interface RichTextEditorProps {
-    onChange: (editorState: SerializedEditorState<SerializedLexicalNode>) => void;
+    onChange: (json: JSONContent) => void;
     initialContent?: string;
 }
 
-// React.memo: only re-render (remount) when key changes (note switch).
-// onChange is stable (useCallback with [] deps in parent).
-// initialContent changes on every edit but is only used on mount — ignore it.
-export const RichTextEditor = memo(
-    ({ onChange, initialContent }: RichTextEditorProps) => {
-        return (
-            <LexicalComposer initialConfig={editorConfig}>
-                <EditorContent onChange={onChange} initialContent={initialContent} />
-            </LexicalComposer>
-        );
-    },
-    (prev, next) => prev.onChange === next.onChange,
-);
+function insertCompressedImage(
+    view: { state: { schema: any; tr: any }; dispatch: (tr: any) => void },
+    file: File | Blob,
+) {
+    compressImage(file).then((dataUrl) => {
+        const node = view.state.schema.nodes.image?.create({ src: dataUrl });
+        if (node) {
+            view.dispatch(view.state.tr.replaceSelectionWith(node));
+        }
+    });
+}
 
-// React.memo with () => true: never re-render during editing.
-// All editor state is managed internally by Lexical, not React props.
-const EditorContent = memo(
-    ({ onChange, initialContent }: RichTextEditorProps) => {
-        const [editor] = useLexicalComposerContext();
-        const { t } = useTranslation();
-        const skipNextChange = useRef(true);
+export const RichTextEditor = ({ onChange, initialContent }: RichTextEditorProps) => {
+    const { t } = useTranslation();
 
-        // Set initial content on mount only
-        useEffect(() => {
-            skipNextChange.current = true;
+    const parsedContent = useMemo(
+        () => migrateLexicalContent(initialContent),
+        // initialContent is only used on mount (component is keyed by note id)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [],
+    );
 
-            if (initialContent) {
-                try {
-                    const parsedContent = JSON.parse(initialContent);
-                    editor.setEditorState(editor.parseEditorState(parsedContent));
-                } catch {
-                    editor.update(() => {
-                        const root = $getRoot();
-                        root.clear();
-
-                        const lines = initialContent.split("\n");
-
-                        for (const line of lines) {
-                            const paragraphNode = $createParagraphNode();
-                            if (line.length > 0) {
-                                paragraphNode.append($createTextNode(line));
-                            }
-                            root.append(paragraphNode);
-                        }
-                    });
+    const editor = useEditor({
+        extensions: [
+            StarterKit,
+            Underline,
+            TextAlign.configure({ types: ["heading", "paragraph"] }),
+            Placeholder.configure({ placeholder: t("editor.placeholder") }),
+            ResizableImageExtension.configure({ allowBase64: true, inline: false }),
+        ],
+        content: parsedContent,
+        onUpdate: ({ editor }) => {
+            onChange(editor.getJSON());
+        },
+        editorProps: {
+            attributes: {
+                "aria-multiline": "true",
+                spellcheck: "false",
+            },
+            handleKeyDown: (view, event) => {
+                // In chrome:// context (production sidebar), the XUL <browser>
+                // element runs without type="content", so Firefox's nsIFocusManager
+                // intercepts arrow key default actions and moves focus to adjacent
+                // elements. stopPropagation() is ineffective because nsIFocusManager
+                // operates outside DOM event propagation.
+                //
+                // Fix: consume the event and manually move the cursor using
+                // Selection.modify(), which manipulates the DOM selection directly
+                // without triggering nsIFocusManager's focus navigation.
+                if (
+                    !event.ctrlKey && !event.metaKey && !event.altKey &&
+                    (event.key === "ArrowUp" || event.key === "ArrowDown" ||
+                     event.key === "ArrowLeft" || event.key === "ArrowRight")
+                ) {
+                    const sel = view.dom.ownerDocument.getSelection();
+                    if (sel?.modify) {
+                        const alter = event.shiftKey ? "extend" : "move";
+                        const vertical = event.key === "ArrowUp" || event.key === "ArrowDown";
+                        const direction = event.key === "ArrowUp" || event.key === "ArrowLeft"
+                            ? "backward" : "forward";
+                        const granularity = vertical ? "line" : "character";
+                        sel.modify(alter, direction, granularity);
+                    }
+                    return true;
                 }
-            } else {
-                skipNextChange.current = false;
-            }
-            // eslint-disable-next-line react-hooks/exhaustive-deps
-        }, []);
-
-        // Listen for content changes only (not selection changes)
-        useEffect(() => {
-            return editor.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves }) => {
-                const isDirty = dirtyElements.size > 0 || dirtyLeaves.size > 0;
-                if (!isDirty) return;
-
-                if (skipNextChange.current) {
-                    skipNextChange.current = false;
-                    return;
-                }
-
-                editorState.read(() => {
-                    onChange(editorState.toJSON());
-                });
-            });
-        }, [editor, onChange]);
-
-        return (
-            <div className="flex flex-col h-full">
-                <Toolbar />
-                <div className="flex-1 overflow-auto p-2">
-                    <RichTextPlugin
-                        contentEditable={
-                            <ContentEditable
-                                className="h-full outline-none"
-                                aria-label={t("editor.contentArea")}
-                                aria-multiline={true}
-                                spellCheck={false}
-                            />
+                return false;
+            },
+            handlePaste: (view, event) => {
+                const items = event.clipboardData?.items;
+                if (!items) return false;
+                for (const item of Array.from(items)) {
+                    if (item.type.startsWith("image/")) {
+                        const file = item.getAsFile();
+                        if (file) {
+                            insertCompressedImage(view, file);
+                            return true;
                         }
-                        ErrorBoundary={LexicalErrorBoundary}
-                    />
-                </div>
-                <ListPlugin />
-                <CheckListPlugin />
-                <HistoryPlugin />
+                    }
+                }
+                return false;
+            },
+            handleDrop: (view, event) => {
+                const files = event.dataTransfer?.files;
+                if (!files?.length) return false;
+                for (const file of Array.from(files)) {
+                    if (file.type.startsWith("image/")) {
+                        insertCompressedImage(view, file);
+                        return true;
+                    }
+                }
+                return false;
+            },
+        },
+    });
+
+    return (
+        <div className="flex flex-col h-full">
+            <Toolbar editor={editor} />
+            <div className="flex-1 overflow-auto p-2">
+                <EditorContent
+                    editor={editor}
+                    className="h-full"
+                    aria-label={t("editor.contentArea")}
+                />
             </div>
-        );
-    },
-    () => true, // Never re-render — all updates are handled via Lexical's internal state
-);
+        </div>
+    );
+};

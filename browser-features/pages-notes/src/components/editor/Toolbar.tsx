@@ -1,29 +1,5 @@
-import { useCallback, useEffect, useRef } from "react";
-import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import {
-    $getSelection,
-    $isRangeSelection,
-    FORMAT_TEXT_COMMAND,
-    FORMAT_ELEMENT_COMMAND,
-    $createParagraphNode,
-    $isElementNode,
-    UNDO_COMMAND,
-    REDO_COMMAND,
-    CAN_UNDO_COMMAND,
-    CAN_REDO_COMMAND,
-    COMMAND_PRIORITY_LOW,
-} from "lexical";
-import {
-    $createHeadingNode,
-    $isHeadingNode,
-    type HeadingTagType,
-} from "@lexical/rich-text";
-import {
-    $isListNode,
-    INSERT_UNORDERED_LIST_COMMAND,
-    INSERT_ORDERED_LIST_COMMAND,
-} from "@lexical/list";
-import { $setBlocksType } from "@lexical/selection";
+import type { Editor } from "@tiptap/react";
+import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
     Bold,
@@ -35,354 +11,274 @@ import {
     AlignLeft,
     AlignCenter,
     AlignRight,
+    Heading,
     Heading1,
     Heading2,
     Heading3,
+    Type,
+    ImagePlus,
+    ChevronDown,
     Undo2,
     Redo2,
 } from "lucide-react";
+import { compressImage } from "../../lib/imageCompressor.ts";
 
-/**
- * Toolbar that uses direct DOM manipulation instead of React state
- * to avoid re-renders that disrupt Firefox's focus management.
- */
-export const Toolbar = () => {
+interface ToolbarProps {
+    editor: Editor | null;
+}
+
+export const Toolbar = ({ editor }: ToolbarProps) => {
     const { t } = useTranslation();
-    const [editor] = useLexicalComposerContext();
+    const [openMenu, setOpenMenu] = useState<string | null>(null);
     const toolbarRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // All state updates go through direct DOM manipulation — no useState, no re-renders.
     useEffect(() => {
-        const toolbar = toolbarRef.current;
-        if (!toolbar) return;
-
-        const updateButton = (selector: string, active: boolean) => {
-            const btn = toolbar.querySelector(selector) as HTMLElement | null;
-            if (!btn) return;
-            btn.classList.toggle("btn-active", active);
-            btn.classList.toggle("btn-ghost", !active);
-            btn.setAttribute("aria-pressed", String(active));
-        };
-
-        const clearAll = () => {
-            for (const btn of toolbar.querySelectorAll("[data-format]")) {
-                btn.classList.remove("btn-active");
-                btn.classList.add("btn-ghost");
-                btn.setAttribute("aria-pressed", "false");
+        if (!openMenu) return;
+        const handler = (e: MouseEvent) => {
+            if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
+                setOpenMenu(null);
             }
         };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+    }, [openMenu]);
 
-        const unregisterUpdate = editor.registerUpdateListener(({ editorState }) => {
-            editorState.read(() => {
-                const selection = $getSelection();
-                if (!$isRangeSelection(selection)) {
-                    clearAll();
-                    return;
-                }
+    if (!editor) return null;
 
-                // Text formats
-                updateButton('[data-format="bold"]', selection.hasFormat("bold"));
-                updateButton('[data-format="italic"]', selection.hasFormat("italic"));
-                updateButton('[data-format="underline"]', selection.hasFormat("underline"));
-                updateButton('[data-format="strikethrough"]', selection.hasFormat("strikethrough"));
+    const btnClass = (active: boolean) =>
+        `btn btn-xs ${active ? "btn-active" : "btn-ghost"}`;
 
-                // Block-level info
-                const anchorNode = selection.anchor.getNode();
-                const element =
-                    anchorNode.getKey() === "root"
-                        ? anchorNode
-                        : anchorNode.getTopLevelElementOrThrow();
+    const toggleMenu = (name: string) =>
+        setOpenMenu((prev) => (prev === name ? null : name));
 
-                const listType = $isListNode(element) ? element.getListType() : null;
-                updateButton('[data-format="bullet"]', listType === "bullet");
-                updateButton('[data-format="number"]', listType === "number");
+    const runAndClose = (action: () => void) => {
+        action();
+        setOpenMenu(null);
+    };
 
-                const headingType = $isHeadingNode(element) ? element.getTag() : null;
-                updateButton('[data-format="h1"]', headingType === "h1");
-                updateButton('[data-format="h2"]', headingType === "h2");
-                updateButton('[data-format="h3"]', headingType === "h3");
+    const toggleUnderline = () => {
+        if (editor.isActive("strike")) {
+            editor.chain().focus().unsetStrike().toggleUnderline().run();
+        } else {
+            editor.chain().focus().toggleUnderline().run();
+        }
+    };
 
-                const align = $isElementNode(element) ? element.getFormatType() : null;
-                updateButton('[data-format="left"]', align === "left");
-                updateButton('[data-format="center"]', align === "center");
-                updateButton('[data-format="right"]', align === "right");
-            });
-        });
+    const toggleStrike = () => {
+        if (editor.isActive("underline")) {
+            editor.chain().focus().unsetUnderline().toggleStrike().run();
+        } else {
+            editor.chain().focus().toggleStrike().run();
+        }
+    };
 
-        const unregisterUndo = editor.registerCommand(
-            CAN_UNDO_COMMAND,
-            (payload: boolean) => {
-                const btn = toolbar.querySelector('[data-action="undo"]') as HTMLButtonElement | null;
-                if (btn) btn.disabled = !payload;
-                return false;
-            },
-            COMMAND_PRIORITY_LOW,
-        );
-        const unregisterRedo = editor.registerCommand(
-            CAN_REDO_COMMAND,
-            (payload: boolean) => {
-                const btn = toolbar.querySelector('[data-action="redo"]') as HTMLButtonElement | null;
-                if (btn) btn.disabled = !payload;
-                return false;
-            },
-            COMMAND_PRIORITY_LOW,
-        );
+    const activeHeadingIcon = editor.isActive("heading", { level: 1 })
+        ? <Heading1 className="h-3.5 w-3.5" />
+        : editor.isActive("heading", { level: 2 })
+            ? <Heading2 className="h-3.5 w-3.5" />
+            : editor.isActive("heading", { level: 3 })
+                ? <Heading3 className="h-3.5 w-3.5" />
+                : <Heading className="h-3.5 w-3.5" />;
 
-        return () => {
-            unregisterUpdate();
-            unregisterUndo();
-            unregisterRedo();
-        };
-    }, [editor]);
+    const activeAlignIcon = editor.isActive({ textAlign: "center" })
+        ? <AlignCenter className="h-3.5 w-3.5" />
+        : editor.isActive({ textAlign: "right" })
+            ? <AlignRight className="h-3.5 w-3.5" />
+            : <AlignLeft className="h-3.5 w-3.5" />;
 
-    const formatText = useCallback(
-        (command: "bold" | "italic" | "underline" | "strikethrough") => {
-            editor.update(() => {
-                const selection = $getSelection();
-                if (!$isRangeSelection(selection)) return;
-
-                if (command === "underline") {
-                    if (selection.hasFormat("strikethrough")) {
-                        editor.dispatchCommand(FORMAT_TEXT_COMMAND, "strikethrough");
-                    }
-                    editor.dispatchCommand(FORMAT_TEXT_COMMAND, "underline");
-                } else if (command === "strikethrough") {
-                    if (selection.hasFormat("underline")) {
-                        editor.dispatchCommand(FORMAT_TEXT_COMMAND, "underline");
-                    }
-                    editor.dispatchCommand(FORMAT_TEXT_COMMAND, "strikethrough");
-                } else {
-                    editor.dispatchCommand(FORMAT_TEXT_COMMAND, command);
-                }
-            });
-        },
-        [editor],
-    );
-
-    const formatElement = useCallback(
-        (command: "left" | "center" | "right") => {
-            editor.update(() => {
-                const selection = $getSelection();
-                if ($isRangeSelection(selection)) {
-                    editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, command);
-                }
-            });
-        },
-        [editor],
-    );
-
-    const formatHeading = useCallback(
-        (type: HeadingTagType) => {
-            editor.update(() => {
-                const selection = $getSelection();
-                if (!$isRangeSelection(selection)) return;
-
-                const element = selection.anchor.getNode().getTopLevelElementOrThrow();
-                const isHeading = $isHeadingNode(element);
-                const currentType = isHeading ? element.getTag() : null;
-
-                if (isHeading && currentType === type) {
-                    $setBlocksType(selection, () => $createParagraphNode());
-                } else {
-                    $setBlocksType(selection, () => $createHeadingNode(type));
-                }
-            });
-        },
-        [editor],
-    );
-
-    const toggleUnOrderList = useCallback(() => {
-        editor.update(() => {
-            const selection = $getSelection();
-            if (!$isRangeSelection(selection)) return;
-
-            const element = selection.anchor.getNode().getTopLevelElementOrThrow();
-            if ($isListNode(element) && element.getListType() === "bullet") {
-                $setBlocksType(selection, () => $createParagraphNode());
-            } else {
-                editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined);
-            }
-        });
-    }, [editor]);
-
-    const toggleOrderList = useCallback(() => {
-        editor.update(() => {
-            const selection = $getSelection();
-            if (!$isRangeSelection(selection)) return;
-
-            const element = selection.anchor.getNode().getTopLevelElementOrThrow();
-            if ($isListNode(element) && element.getListType() === "number") {
-                $setBlocksType(selection, () => $createParagraphNode());
-            } else {
-                editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined);
-            }
-        });
-    }, [editor]);
+    const hasActiveStyle = editor.isActive("bold") || editor.isActive("italic")
+        || editor.isActive("underline") || editor.isActive("strike");
 
     return (
         <>
-            {/* onMouseDown preventDefault keeps focus in the editor when clicking toolbar buttons */}
             <div
                 ref={toolbarRef}
-                className="flex flex-wrap gap-0.5 p-1"
+                className="flex flex-wrap items-center gap-0.5 p-1"
                 role="toolbar"
                 aria-label={t("editor.toolbar")}
                 onMouseDown={(e) => e.preventDefault()}
             >
-                <div className="flex flex-wrap gap-0.5" role="group" aria-label={t("editor.history")}>
+                {/* Undo / Redo */}
+                <div className="flex gap-0.5" role="group" aria-label={t("editor.history")}>
                     <button
                         type="button"
-                        data-action="undo"
                         className="btn btn-xs btn-ghost"
-                        onClick={() => editor.dispatchCommand(UNDO_COMMAND, undefined)}
-                        disabled
+                        onClick={() => editor.chain().focus().undo().run()}
+                        disabled={!editor.can().undo()}
                         aria-label={t("editor.undo")}
                     >
                         <Undo2 className="h-3.5 w-3.5" />
                     </button>
                     <button
                         type="button"
-                        data-action="redo"
                         className="btn btn-xs btn-ghost"
-                        onClick={() => editor.dispatchCommand(REDO_COMMAND, undefined)}
-                        disabled
+                        onClick={() => editor.chain().focus().redo().run()}
+                        disabled={!editor.can().redo()}
                         aria-label={t("editor.redo")}
                     >
                         <Redo2 className="h-3.5 w-3.5" />
                     </button>
                 </div>
+
                 <div className="divider divider-horizontal mx-0" />
-                <div className="flex flex-wrap gap-0.5" role="group" aria-label={t("editor.headings")}>
+
+                {/* Heading dropdown */}
+                <div className="relative" role="group" aria-label={t("editor.headings")}>
                     <button
                         type="button"
-                        data-format="h1"
-                        className="btn btn-xs btn-ghost"
-                        onClick={() => formatHeading("h1")}
-                        aria-label={t("editor.heading1")}
-                        aria-pressed="false"
+                        className={`btn btn-xs ${editor.isActive("heading") ? "btn-active" : "btn-ghost"} gap-0 pr-1`}
+                        onClick={() => toggleMenu("heading")}
+                        aria-label={t("editor.headings")}
+                        aria-expanded={openMenu === "heading"}
                     >
-                        <Heading1 className="h-3.5 w-3.5" />
+                        {activeHeadingIcon}
+                        <ChevronDown className="h-2.5 w-2.5" />
                     </button>
-                    <button
-                        type="button"
-                        data-format="h2"
-                        className="btn btn-xs btn-ghost"
-                        onClick={() => formatHeading("h2")}
-                        aria-label={t("editor.heading2")}
-                        aria-pressed="false"
-                    >
-                        <Heading2 className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                        type="button"
-                        data-format="h3"
-                        className="btn btn-xs btn-ghost"
-                        onClick={() => formatHeading("h3")}
-                        aria-label={t("editor.heading3")}
-                        aria-pressed="false"
-                    >
-                        <Heading3 className="h-3.5 w-3.5" />
-                    </button>
+                    {openMenu === "heading" && (
+                        <div className="absolute top-full left-0 mt-1 flex gap-0.5 p-1 bg-base-200 rounded-lg shadow-lg z-10">
+                            <button type="button" className={btnClass(editor.isActive("heading", { level: 1 }))}
+                                onClick={() => runAndClose(() => editor.chain().focus().toggleHeading({ level: 1 }).run())}
+                                aria-label={t("editor.heading1")} aria-pressed={editor.isActive("heading", { level: 1 })}>
+                                <Heading1 className="h-3.5 w-3.5" />
+                            </button>
+                            <button type="button" className={btnClass(editor.isActive("heading", { level: 2 }))}
+                                onClick={() => runAndClose(() => editor.chain().focus().toggleHeading({ level: 2 }).run())}
+                                aria-label={t("editor.heading2")} aria-pressed={editor.isActive("heading", { level: 2 })}>
+                                <Heading2 className="h-3.5 w-3.5" />
+                            </button>
+                            <button type="button" className={btnClass(editor.isActive("heading", { level: 3 }))}
+                                onClick={() => runAndClose(() => editor.chain().focus().toggleHeading({ level: 3 }).run())}
+                                aria-label={t("editor.heading3")} aria-pressed={editor.isActive("heading", { level: 3 })}>
+                                <Heading3 className="h-3.5 w-3.5" />
+                            </button>
+                        </div>
+                    )}
                 </div>
-                <div className="divider divider-horizontal mx-0" />
-                <div className="flex flex-wrap gap-0.5" role="group" aria-label={t("editor.textFormatting")}>
+
+                {/* Text style dropdown — stays open for multi-select */}
+                <div className="relative" role="group" aria-label={t("editor.textFormatting")}>
                     <button
                         type="button"
-                        data-format="bold"
-                        className="btn btn-xs btn-ghost"
-                        onClick={() => formatText("bold")}
-                        aria-label={t("editor.bold")}
-                        aria-pressed="false"
+                        className={`btn btn-xs ${hasActiveStyle ? "btn-active" : "btn-ghost"} gap-0 pr-1`}
+                        onClick={() => toggleMenu("style")}
+                        aria-label={t("editor.textFormatting")}
+                        aria-expanded={openMenu === "style"}
                     >
-                        <Bold className="h-3.5 w-3.5" />
+                        <Type className="h-3.5 w-3.5" />
+                        <ChevronDown className="h-2.5 w-2.5" />
                     </button>
-                    <button
-                        type="button"
-                        data-format="italic"
-                        className="btn btn-xs btn-ghost"
-                        onClick={() => formatText("italic")}
-                        aria-label={t("editor.italic")}
-                        aria-pressed="false"
-                    >
-                        <Italic className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                        type="button"
-                        data-format="underline"
-                        className="btn btn-xs btn-ghost"
-                        onClick={() => formatText("underline")}
-                        aria-label={t("editor.underline")}
-                        aria-pressed="false"
-                    >
-                        <Underline className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                        type="button"
-                        data-format="strikethrough"
-                        className="btn btn-xs btn-ghost"
-                        onClick={() => formatText("strikethrough")}
-                        aria-label={t("editor.strikethrough")}
-                        aria-pressed="false"
-                    >
-                        <Strikethrough className="h-3.5 w-3.5" />
-                    </button>
+                    {openMenu === "style" && (
+                        <div className="absolute top-full left-0 mt-1 flex gap-0.5 p-1 bg-base-200 rounded-lg shadow-lg z-10">
+                            <button type="button" className={btnClass(editor.isActive("bold"))}
+                                onClick={() => editor.chain().focus().toggleBold().run()}
+                                aria-label={t("editor.bold")} aria-pressed={editor.isActive("bold")}>
+                                <Bold className="h-3.5 w-3.5" />
+                            </button>
+                            <button type="button" className={btnClass(editor.isActive("italic"))}
+                                onClick={() => editor.chain().focus().toggleItalic().run()}
+                                aria-label={t("editor.italic")} aria-pressed={editor.isActive("italic")}>
+                                <Italic className="h-3.5 w-3.5" />
+                            </button>
+                            <button type="button" className={btnClass(editor.isActive("underline"))}
+                                onClick={toggleUnderline}
+                                aria-label={t("editor.underline")} aria-pressed={editor.isActive("underline")}>
+                                <Underline className="h-3.5 w-3.5" />
+                            </button>
+                            <button type="button" className={btnClass(editor.isActive("strike"))}
+                                onClick={toggleStrike}
+                                aria-label={t("editor.strikethrough")} aria-pressed={editor.isActive("strike")}>
+                                <Strikethrough className="h-3.5 w-3.5" />
+                            </button>
+                        </div>
+                    )}
                 </div>
+
                 <div className="divider divider-horizontal mx-0" />
-                <div className="flex flex-wrap gap-0.5" role="group" aria-label={t("editor.lists")}>
+
+                {/* Lists — inline */}
+                <div className="flex gap-0.5" role="group" aria-label={t("editor.lists")}>
                     <button
                         type="button"
-                        data-format="bullet"
-                        className="btn btn-xs btn-ghost"
-                        onClick={toggleUnOrderList}
+                        className={btnClass(editor.isActive("bulletList"))}
+                        onClick={() => editor.chain().focus().toggleBulletList().run()}
                         aria-label={t("editor.bulletList")}
-                        aria-pressed="false"
+                        aria-pressed={editor.isActive("bulletList")}
                     >
                         <List className="h-3.5 w-3.5" />
                     </button>
                     <button
                         type="button"
-                        data-format="number"
-                        className="btn btn-xs btn-ghost"
-                        onClick={toggleOrderList}
+                        className={btnClass(editor.isActive("orderedList"))}
+                        onClick={() => editor.chain().focus().toggleOrderedList().run()}
                         aria-label={t("editor.numberedList")}
-                        aria-pressed="false"
+                        aria-pressed={editor.isActive("orderedList")}
                     >
                         <ListOrdered className="h-3.5 w-3.5" />
                     </button>
                 </div>
+
                 <div className="divider divider-horizontal mx-0" />
-                <div className="flex flex-wrap gap-0.5" role="group" aria-label={t("editor.alignment")}>
+
+                {/* Alignment dropdown */}
+                <div className="relative" role="group" aria-label={t("editor.alignment")}>
                     <button
                         type="button"
-                        data-format="left"
-                        className="btn btn-xs btn-ghost"
-                        onClick={() => formatElement("left")}
-                        aria-label={t("editor.alignLeft")}
-                        aria-pressed="false"
+                        className="btn btn-xs btn-ghost gap-0 pr-1"
+                        onClick={() => toggleMenu("align")}
+                        aria-label={t("editor.alignment")}
+                        aria-expanded={openMenu === "align"}
                     >
-                        <AlignLeft className="h-3.5 w-3.5" />
+                        {activeAlignIcon}
+                        <ChevronDown className="h-2.5 w-2.5" />
                     </button>
-                    <button
-                        type="button"
-                        data-format="center"
-                        className="btn btn-xs btn-ghost"
-                        onClick={() => formatElement("center")}
-                        aria-label={t("editor.alignCenter")}
-                        aria-pressed="false"
-                    >
-                        <AlignCenter className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                        type="button"
-                        data-format="right"
-                        className="btn btn-xs btn-ghost"
-                        onClick={() => formatElement("right")}
-                        aria-label={t("editor.alignRight")}
-                        aria-pressed="false"
-                    >
-                        <AlignRight className="h-3.5 w-3.5" />
-                    </button>
+                    {openMenu === "align" && (
+                        <div className="absolute top-full left-0 mt-1 flex gap-0.5 p-1 bg-base-200 rounded-lg shadow-lg z-10">
+                            <button type="button" className={btnClass(editor.isActive({ textAlign: "left" }))}
+                                onClick={() => runAndClose(() => editor.chain().focus().setTextAlign("left").run())}
+                                aria-label={t("editor.alignLeft")} aria-pressed={editor.isActive({ textAlign: "left" })}>
+                                <AlignLeft className="h-3.5 w-3.5" />
+                            </button>
+                            <button type="button" className={btnClass(editor.isActive({ textAlign: "center" }))}
+                                onClick={() => runAndClose(() => editor.chain().focus().setTextAlign("center").run())}
+                                aria-label={t("editor.alignCenter")} aria-pressed={editor.isActive({ textAlign: "center" })}>
+                                <AlignCenter className="h-3.5 w-3.5" />
+                            </button>
+                            <button type="button" className={btnClass(editor.isActive({ textAlign: "right" }))}
+                                onClick={() => runAndClose(() => editor.chain().focus().setTextAlign("right").run())}
+                                aria-label={t("editor.alignRight")} aria-pressed={editor.isActive({ textAlign: "right" })}>
+                                <AlignRight className="h-3.5 w-3.5" />
+                            </button>
+                        </div>
+                    )}
                 </div>
+
+                <div className="divider divider-horizontal mx-0" />
+
+                {/* Image insert */}
+                <button
+                    type="button"
+                    className="btn btn-xs btn-ghost"
+                    onClick={() => fileInputRef.current?.click()}
+                    aria-label={t("editor.image")}
+                >
+                    <ImagePlus className="h-3.5 w-3.5" />
+                </button>
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file && editor) {
+                            compressImage(file).then((dataUrl) => {
+                                editor.chain().focus().setImage({ src: dataUrl }).run();
+                            });
+                        }
+                        e.target.value = "";
+                    }}
+                />
             </div>
             <div className="divider my-0" />
         </>
