@@ -4,9 +4,14 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { onCleanup } from "solid-js";
+import i18next from "i18next";
+import { addI18nObserver } from "#i18n/config-browser-chrome.ts";
 import type { SplitViewTab } from "../data/types.js";
 import { getGBrowser, getTabContextMenu } from "../data/types.js";
 import { splitViewConfig } from "../data/config.js";
+
+const t = (key: string): string =>
+  (i18next.t as (k: string) => string)(key);
 
 /**
  * Adds an "Add Pane to Split View" item to the tab context menu
@@ -15,6 +20,15 @@ import { splitViewConfig } from "../data/config.js";
 export function initContextMenu(logger: ConsoleInstance): void {
   const tabContainer = getGBrowser()?.tabContainer;
   if (!tabContainer) return;
+
+  const updateAddPaneLabel = (): void => {
+    const addPaneItem = document?.getElementById("floorp_addPaneToSplitView");
+    if (addPaneItem) {
+      addPaneItem.setAttribute("label", t("splitView.contextMenu.addPane"));
+    }
+  };
+
+  addI18nObserver(updateAddPaneLabel);
 
   const onTabContextMenu = (): void => {
     const separateItem = document?.getElementById("context_separateSplitView");
@@ -53,7 +67,10 @@ export function initContextMenu(logger: ConsoleInstance): void {
         addPaneItem = document?.createXULElement("menuitem") as XULElement;
         if (addPaneItem) {
           addPaneItem.id = "floorp_addPaneToSplitView";
-          addPaneItem.setAttribute("label", "Add Pane to Split View");
+          addPaneItem.setAttribute(
+            "label",
+            t("splitView.contextMenu.addPane"),
+          );
           addPaneItem.addEventListener("command", () => {
             const currentGBrowser = getGBrowser();
             const currentSplitView = currentGBrowser?.activeSplitView;

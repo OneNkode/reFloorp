@@ -370,5 +370,17 @@
     "menu": {
       "title": "Floorp Hub"
     }
+  },
+  "splitView": {
+    "contextMenu": {
+      "addPane": "Add Pane to Split View"
+    },
+    "layoutPicker": {
+      "horizontal": "Horizontal Split",
+      "vertical": "Vertical Split",
+      "grid2x2": "Grid (2×2)",
+      "addPane": "Add Pane",
+      "removePane": "Remove Last Pane"
+    }
   }
 }

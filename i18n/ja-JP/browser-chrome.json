@@ -370,5 +370,17 @@
     "menu": {
       "title": "Floorp Hub"
     }
+  },
+  "splitView": {
+    "contextMenu": {
+      "addPane": "分割ビューにペインを追加"
+    },
+    "layoutPicker": {
+      "horizontal": "水平分割",
+      "vertical": "垂直分割",
+      "grid2x2": "グリッド (2×2)",
+      "addPane": "ペインを追加",
+      "removePane": "最後のペインを削除"
+    }
   }
 }

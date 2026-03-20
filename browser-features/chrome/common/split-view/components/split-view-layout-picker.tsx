@@ -3,22 +3,26 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+import i18next from "i18next";
 import { splitViewConfig, setSplitViewConfig } from "../data/config.js";
 import type { SplitViewLayout, SplitViewTab } from "../data/types.js";
 import { getGBrowser } from "../data/types.js";
 
 const log = console.createInstance({ prefix: "nora@split-view-picker" });
 
+const t = (key: string): string =>
+  (i18next.t as (k: string) => string)(key);
+
 interface LayoutOption {
   layout: SplitViewLayout;
-  label: string;
+  i18nKey: string;
   minPanes: number;
 }
 
 const LAYOUT_OPTIONS: LayoutOption[] = [
-  { layout: "horizontal", label: "Horizontal Split", minPanes: 2 },
-  { layout: "vertical", label: "Vertical Split", minPanes: 2 },
-  { layout: "grid-2x2", label: "Grid (2\u00D72)", minPanes: 4 },
+  { layout: "horizontal", i18nKey: "splitView.layoutPicker.horizontal", minPanes: 2 },
+  { layout: "vertical", i18nKey: "splitView.layoutPicker.vertical", minPanes: 2 },
+  { layout: "grid-2x2", i18nKey: "splitView.layoutPicker.grid2x2", minPanes: 4 },
 ];
 
 export function initLayoutPicker(): void {
@@ -72,7 +76,7 @@ function onPopupShowing(): void {
     if (!item) continue;
 
     item.className = "floorp-split-view-menu-item";
-    item.setAttribute("label", opt.label);
+    item.setAttribute("label", t(opt.i18nKey));
     item.setAttribute("type", "radio");
     item.setAttribute("checked", String(currentLayout === opt.layout));
 
@@ -91,7 +95,7 @@ function onPopupShowing(): void {
     const addItem = document?.createXULElement("menuitem");
     if (addItem) {
       addItem.className = "floorp-split-view-menu-item";
-      addItem.setAttribute("label", "Add Pane");
+      addItem.setAttribute("label", t("splitView.layoutPicker.addPane"));
       addItem.addEventListener("command", () => {
         log.debug("[command] adding pane");
         addPaneToActiveSplitView();
@@ -104,7 +108,7 @@ function onPopupShowing(): void {
     const removeItem = document?.createXULElement("menuitem");
     if (removeItem) {
       removeItem.className = "floorp-split-view-menu-item";
-      removeItem.setAttribute("label", "Remove Last Pane");
+      removeItem.setAttribute("label", t("splitView.layoutPicker.removePane"));
       removeItem.addEventListener("command", () => {
         log.debug("[command] removing last pane");
         removePaneFromActiveSplitView();
