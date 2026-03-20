@@ -21,6 +21,49 @@ export const overrides = [
         [key: string]: unknown;
       },
     ) {
+      const urlStr = typeof url === "string" ? url : url.spec;
+
+      // Handle about:opentabs → about:newtab redirect in split view.
+      // When about:opentabs has no unsplit tabs to display, its render()
+      // calls openTrustedLinkIn("about:newtab", "current"), which would
+      // navigate the SELECTED tab (user's page) to about:newtab.
+      // Instead, find the about:opentabs tab and navigate IT to about:newtab,
+      // so the user's page is preserved and the empty pane shows a new tab.
+      if (
+        urlStr === "about:newtab" &&
+        where === "current" &&
+        (window as any).gBrowser?.selectedTab?.splitview
+      ) {
+        const gBrowser = (window as any).gBrowser;
+        // Find the about:opentabs tab in the split view
+        const opentabsTab = gBrowser.tabs.find((t: any) => {
+          try {
+            return t.linkedBrowser?.currentURI?.spec === "about:opentabs";
+          } catch { return false; }
+        });
+        if (opentabsTab && opentabsTab !== gBrowser.selectedTab) {
+          // Navigate the opentabs tab itself to about:newtab
+          console.debug("Workspaces: redirecting about:opentabs pane to about:newtab");
+          opentabsTab.linkedBrowser.fixupAndLoadURIString("about:newtab", {
+            triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
+          });
+          return;
+        }
+        // If opentabs IS the selected tab, just let the redirect happen normally
+        // (no infinite loop risk since the page will change away from about:opentabs)
+        if (opentabsTab === gBrowser.selectedTab) {
+          return originalOpenTrustedLinkIn.call(this, url, where, options);
+        }
+        // Fallback: block redirect to protect the selected tab
+        console.debug("Workspaces: blocked about:newtab redirect in split view context");
+        return;
+      }
+
+      // Skip workspace container logic for browser-internal about: URLs
+      if (urlStr.startsWith("about:")) {
+        return originalOpenTrustedLinkIn.call(this, url, where, options);
+      }
+
       const gWorkspacesServices = Workspaces.getCtx();
       const workspaceUserContextId =
         gWorkspacesServices?.getCurrentWorkspaceUserContextId() ?? 0;

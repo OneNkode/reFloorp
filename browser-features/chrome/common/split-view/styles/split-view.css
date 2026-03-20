@@ -1,0 +1,281 @@
+/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*-
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+/* Hide Firefox's native single splitter when Floorp's advanced split view is active */
+#tabbrowser-tabpanels[splitview][data-floorp-split] > .split-view-splitter {
+  display: none !important;
+}
+
+/*
+ * Override xul.css default that hides non-selected tabpanels children.
+ * xul.css sets `-moz-subtree-hidden-only-visually: 1` on all tabpanels children,
+ * then only makes `.deck-selected` and `.split-view-panel-active` visible.
+ * For N-pane split view, ALL `.split-view-panel` elements must be visible,
+ * not just those with `.split-view-panel-active`.
+ */
+#tabbrowser-tabpanels[splitview][data-floorp-split] > .split-view-panel {
+  -moz-subtree-hidden-only-visually: 0 !important;
+  visibility: inherit !important;
+  /*
+   * Upstream only applies `width: unset` on `.split-view-panel-active`,
+   * but in Floorp's N-pane split view, panels may not all receive that
+   * class immediately (especially the non-selected panel during initial
+   * split creation). Without `width: unset`, the panel retains its
+   * default/inherited width and ignores flex sizing, causing overlaps.
+   */
+  width: unset !important;
+}
+
+/*
+ * Hide non-split-view panel children from flex/grid layout.
+ * When tabpanels switches from deck (stack) to flex/grid display,
+ * ALL children become layout items — even panels hidden via
+ * -moz-subtree-hidden-only-visually. These invisible panels still
+ * occupy space and cause split-view panels to overlap or shrink.
+ * Explicitly collapse them so only .split-view-panel and our handles
+ * participate in the layout.
+ */
+#tabbrowser-tabpanels[splitview][data-floorp-split] > :not(.split-view-panel):not(.split-view-splitter):not(.floorp-split-handle):not(.floorp-grid-handle) {
+  display: none !important;
+}
+
+/* ===== Custom drag handles ===== */
+
+.floorp-split-handle {
+  flex: none;
+  z-index: 1;
+  background: transparent;
+  transition: background-color 150ms ease;
+  position: relative;
+}
+
+.floorp-split-handle::after {
+  content: "";
+  position: absolute;
+  background: var(--focus-outline-color);
+  opacity: 0;
+  transition: opacity 150ms ease;
+  border-radius: 2px;
+}
+
+.floorp-split-handle:hover::after {
+  opacity: 1;
+}
+
+/* Horizontal drag handle (between columns) */
+.floorp-split-handle[data-orientation="horizontal"] {
+  width: 8px;
+  cursor: col-resize;
+  margin-inline: -2px;
+}
+
+.floorp-split-handle[data-orientation="horizontal"]::after {
+  inset-block: 50%;
+  inset-inline: 2px;
+  transform: translateY(-50%);
+  height: 40px;
+  width: 4px;
+}
+
+/* Vertical drag handle (between rows) */
+.floorp-split-handle[data-orientation="vertical"] {
+  height: 8px;
+  cursor: row-resize;
+  margin-block: -2px;
+}
+
+.floorp-split-handle[data-orientation="vertical"]::after {
+  inset-inline: 50%;
+  inset-block: 2px;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 4px;
+}
+
+/* ===== Grid layout drag handles ===== */
+
+.floorp-grid-handle {
+  position: absolute;
+  z-index: 2;
+  background: transparent;
+  transition: background-color 150ms ease;
+}
+
+.floorp-grid-handle::after {
+  content: "";
+  position: absolute;
+  background: var(--focus-outline-color);
+  opacity: 0;
+  transition: opacity 150ms ease;
+  border-radius: 2px;
+}
+
+.floorp-grid-handle:hover::after {
+  opacity: 1;
+}
+
+/* Vertical grid handle (column separator) */
+.floorp-grid-handle[data-orientation="grid-col"] {
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  left: calc(var(--floorp-grid-col-ratio, 50%) - 4px);
+  cursor: col-resize;
+}
+
+.floorp-grid-handle[data-orientation="grid-col"]::after {
+  inset-block: 50%;
+  inset-inline: 2px;
+  transform: translateY(-50%);
+  height: 40px;
+  width: 4px;
+}
+
+/* Horizontal grid handle (row separator) */
+.floorp-grid-handle[data-orientation="grid-row"] {
+  left: 0;
+  right: 0;
+  height: 8px;
+  top: calc(var(--floorp-grid-row-ratio, 50%) - 4px);
+  cursor: row-resize;
+}
+
+.floorp-grid-handle[data-orientation="grid-row"]::after {
+  inset-inline: 50%;
+  inset-block: 2px;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 4px;
+}
+
+/* Center intersection handle */
+.floorp-grid-handle[data-orientation="grid-center"] {
+  width: 16px;
+  height: 16px;
+  left: calc(var(--floorp-grid-col-ratio, 50%) - 8px);
+  top: calc(var(--floorp-grid-row-ratio, 50%) - 8px);
+  cursor: move;
+  border-radius: 50%;
+  z-index: 3;
+}
+
+.floorp-grid-handle[data-orientation="grid-center"]::after {
+  inset: 3px;
+  border-radius: 50%;
+}
+
+/* ===== Vertical layout override ===== */
+#tabbrowser-tabpanels[splitview][split-view-layout="vertical"] {
+  flex-direction: column;
+}
+
+#tabbrowser-tabpanels[splitview][split-view-layout="vertical"] > .split-view-panel {
+  --panel-min-height: 100px;
+  min-height: var(--panel-min-height);
+  max-height: calc(100% - var(--panel-min-height));
+  min-width: unset !important;
+  max-width: unset !important;
+}
+
+/* ===== Grid layout override ===== */
+
+/*
+ * Grid mode: tabpanels default is `display: grid` (xul.css) which stacks
+ * ALL children in the same cell (deck behavior). content-area.css overrides
+ * to `display: flex`. For 2x2 grid, we need a real CSS grid with explicit
+ * cell placement. Non-split-view children must be collapsed so they don't
+ * create extra implicit grid tracks.
+ */
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] {
+  display: grid !important;
+  position: relative;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+/* Collapse non-split-view children so they don't participate in grid layout */
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > :not(.split-view-panel):not(.floorp-grid-handle) {
+  display: none !important;
+}
+
+/* Explicitly place split-view panels into grid cells using the column attribute */
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel[column="0"] {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel[column="1"] {
+  grid-row: 1;
+  grid-column: 2;
+}
+
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel[column="2"] {
+  grid-row: 2;
+  grid-column: 1;
+}
+
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel[column="3"] {
+  grid-row: 2;
+  grid-column: 2;
+}
+
+/* Remove flex-specific constraints that break grid cell sizing */
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel {
+  max-width: unset !important;
+  min-width: unset !important;
+  max-height: unset !important;
+  flex: unset !important;
+  width: auto !important;
+  height: auto !important;
+  margin: var(--space-xsmall) !important;
+  position: relative !important;
+}
+
+/* Ensure the browserContainer fills the grid cell */
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel > .browserContainer {
+  min-height: 0;
+  min-width: 0;
+}
+
+/* Ensure custom handles are visible even in non-selected panels */
+#tabbrowser-tabpanels[splitview] .floorp-split-handle,
+#tabbrowser-tabpanels[splitview] .floorp-grid-handle {
+  visibility: visible !important;
+  -moz-subtree-hidden-only-visually: 0 !important;
+}
+
+/* ===== Layout picker menu items ===== */
+
+.floorp-split-layout-icon {
+  width: 16px;
+  height: 16px;
+  -moz-context-properties: fill;
+  fill: currentColor;
+}
+
+/* ===== Active pane indicator for N panes ===== */
+
+#split-view-button[data-pane-count="3"]::after,
+#split-view-button[data-pane-count="4"]::after {
+  content: attr(data-pane-count);
+  font-size: 8px;
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-end: 0;
+  background: var(--toolbar-field-focus-background-color);
+  color: var(--toolbar-field-focus-color);
+  border-radius: 2px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+/* Prevent user text selection during splitter drag */
+#tabbrowser-tabpanels[data-floorp-dragging] {
+  user-select: none !important;
+}
+
+#tabbrowser-tabpanels[data-floorp-dragging] browser {
+  pointer-events: none !important;
+}
