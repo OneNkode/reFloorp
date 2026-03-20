@@ -271,6 +271,16 @@
   line-height: 1;
 }
 
+/* ===== Lepton theme compatibility =====
+ * When split-view sets multibar on #TabsToolbar to prevent Lepton's
+ * negative margin-inline from hiding tabs, Lepton also applies
+ * max-height: var(--tab-min-height_mlt) meant for multirow tabs.
+ * Reset it so the tab strip isn't height-constrained during split-view.
+ */
+:root:has(#tabbrowser-tabpanels[data-floorp-split]) #TabsToolbar[multibar] #tabbrowser-tabs:not([orient="vertical"]) {
+  max-height: unset !important;
+}
+
 /* Prevent user text selection during splitter drag */
 #tabbrowser-tabpanels[data-floorp-dragging] {
   user-select: none !important;

@@ -4,6 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { splitViewConfig } from "../data/config.js";
+import { getGBrowser } from "../data/types.js";
 
 /**
  * Enhances the URL bar split view button to show N-pane information.
@@ -13,7 +14,7 @@ import { splitViewConfig } from "../data/config.js";
  * `data-pane-count` and `data-layout` attributes.
  */
 export function initToolbarButtonEnhancement(): void {
-  const tabContainer = (globalThis as any).gBrowser?.tabContainer;
+  const tabContainer = getGBrowser()?.tabContainer;
   if (!tabContainer) return;
 
   tabContainer.addEventListener(
@@ -27,7 +28,7 @@ export function initToolbarButtonEnhancement(): void {
 }
 
 export function destroyToolbarButtonEnhancement(): void {
-  const tabContainer = (globalThis as any).gBrowser?.tabContainer;
+  const tabContainer = getGBrowser()?.tabContainer;
   if (!tabContainer) return;
 
   tabContainer.removeEventListener(

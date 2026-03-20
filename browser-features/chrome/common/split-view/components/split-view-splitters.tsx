@@ -95,12 +95,6 @@ export function insertGridHandles(panelIds: string[]): void {
 
   log.debug(`[insertGridHandles] colRatio=${sizes.gridColRatio}, rowRatio=${sizes.gridRowRatio}`);
 
-  // Log panel elements and their classes
-  for (let i = 0; i < panelIds.length; i++) {
-    const el = document?.getElementById(panelIds[i]);
-    log.debug(`[insertGridHandles] panel[${i}] id=${panelIds[i]}, exists=${!!el}, column=${el?.getAttribute("column")}, classes=${el?.className}`);
-  }
-
   const colPct = (sizes.gridColRatio * 100).toFixed(2);
   const rowPct = (sizes.gridRowRatio * 100).toFixed(2);
   (tabpanels as HTMLElement).style.setProperty(
@@ -113,10 +107,6 @@ export function insertGridHandles(panelIds: string[]): void {
   );
   (tabpanels as HTMLElement).style.setProperty("--floorp-grid-col-ratio", `${colPct}%`);
   (tabpanels as HTMLElement).style.setProperty("--floorp-grid-row-ratio", `${rowPct}%`);
-
-  // Log the computed styles on tabpanels
-  const computed = globalThis.getComputedStyle(tabpanels as Element);
-  log.debug(`[insertGridHandles] tabpanels computed display=${computed.display}, grid-template-columns=${computed.gridTemplateColumns}, grid-template-rows=${computed.gridTemplateRows}`);
 
   const colHandle = document?.createXULElement("box");
   if (colHandle) {
@@ -260,159 +250,110 @@ function onFlexHandleMouseDown(
 
 // ===== Grid handle drag logic =====
 
-function onGridColHandleMouseDown(e: MouseEvent): void {
-  e.preventDefault();
-  const tabpanels = getTabpanels() as HTMLElement | null;
-  if (!tabpanels) return;
-
-  log.debug("[gridDrag:col:start]");
-  tabpanels.setAttribute("data-floorp-dragging", "true");
-
-  const tabpanelsRect = tabpanels.getBoundingClientRect();
-  let frameRequested = false;
-  let pendingRatio = splitViewPaneSizes().gridColRatio;
-
-  const applyFrame = () => {
-    frameRequested = false;
-    const pct = (pendingRatio * 100).toFixed(2);
-    tabpanels.style.setProperty("grid-template-columns", `${pct}% calc(100% - ${pct}%)`);
-    tabpanels.style.setProperty("--floorp-grid-col-ratio", `${pct}%`);
-  };
-
-  const onMouseMove = (e: MouseEvent) => {
-    const ratio = (e.clientX - tabpanelsRect.left) / tabpanelsRect.width;
-    pendingRatio = Math.max(0.15, Math.min(0.85, ratio));
-    if (!frameRequested) {
-      frameRequested = true;
-      requestAnimationFrame(applyFrame);
-    }
-  };
-
-  const cleanup = () => {
-    tabpanels.removeAttribute("data-floorp-dragging");
-    document?.removeEventListener("mousemove", onMouseMove);
-    document?.removeEventListener("mouseup", onMouseUp);
-    if (activeDragCleanup === cleanup) activeDragCleanup = null;
-  };
-
-  const onMouseUp = () => {
-    applyFrame();
-    cleanup();
-    log.debug(`[gridDrag:col:end] ratio=${pendingRatio.toFixed(3)}`);
-    setSplitViewPaneSizes((prev) => ({ ...prev, gridColRatio: pendingRatio }));
-  };
-
-  activeDragCleanup?.();
-  activeDragCleanup = cleanup;
-  document?.addEventListener("mousemove", onMouseMove);
-  document?.addEventListener("mouseup", onMouseUp);
+interface GridDragAxis {
+  mouseProperty: "clientX" | "clientY";
+  rectStart: "left" | "top";
+  rectSize: "width" | "height";
+  gridTemplate: "grid-template-columns" | "grid-template-rows";
+  cssVar: "--floorp-grid-col-ratio" | "--floorp-grid-row-ratio";
+  sizeKey: "gridColRatio" | "gridRowRatio";
 }
 
-function onGridRowHandleMouseDown(e: MouseEvent): void {
-  e.preventDefault();
-  const tabpanels = getTabpanels() as HTMLElement | null;
-  if (!tabpanels) return;
+const COL_AXIS: GridDragAxis = {
+  mouseProperty: "clientX",
+  rectStart: "left",
+  rectSize: "width",
+  gridTemplate: "grid-template-columns",
+  cssVar: "--floorp-grid-col-ratio",
+  sizeKey: "gridColRatio",
+};
 
-  log.debug("[gridDrag:row:start]");
-  tabpanels.setAttribute("data-floorp-dragging", "true");
+const ROW_AXIS: GridDragAxis = {
+  mouseProperty: "clientY",
+  rectStart: "top",
+  rectSize: "height",
+  gridTemplate: "grid-template-rows",
+  cssVar: "--floorp-grid-row-ratio",
+  sizeKey: "gridRowRatio",
+};
 
-  const tabpanelsRect = tabpanels.getBoundingClientRect();
-  let frameRequested = false;
-  let pendingRatio = splitViewPaneSizes().gridRowRatio;
+function createGridDragHandler(
+  axes: GridDragAxis[],
+): (e: MouseEvent) => void {
+  return (e: MouseEvent) => {
+    e.preventDefault();
+    const tabpanels = getTabpanels() as HTMLElement | null;
+    if (!tabpanels) return;
 
-  const applyFrame = () => {
-    frameRequested = false;
-    const pct = (pendingRatio * 100).toFixed(2);
-    tabpanels.style.setProperty("grid-template-rows", `${pct}% calc(100% - ${pct}%)`);
-    tabpanels.style.setProperty("--floorp-grid-row-ratio", `${pct}%`);
-  };
+    const label = axes.map((a) => a.sizeKey).join("+");
+    log.debug(`[gridDrag:${label}:start]`);
+    tabpanels.setAttribute("data-floorp-dragging", "true");
 
-  const onMouseMove = (e: MouseEvent) => {
-    const ratio = (e.clientY - tabpanelsRect.top) / tabpanelsRect.height;
-    pendingRatio = Math.max(0.15, Math.min(0.85, ratio));
-    if (!frameRequested) {
-      frameRequested = true;
-      requestAnimationFrame(applyFrame);
+    const tabpanelsRect = tabpanels.getBoundingClientRect();
+    let frameRequested = false;
+    const pending: Record<string, number> = {};
+    for (const axis of axes) {
+      pending[axis.sizeKey] = splitViewPaneSizes()[axis.sizeKey];
     }
-  };
 
-  const cleanup = () => {
-    tabpanels.removeAttribute("data-floorp-dragging");
-    document?.removeEventListener("mousemove", onMouseMove);
-    document?.removeEventListener("mouseup", onMouseUp);
-    if (activeDragCleanup === cleanup) activeDragCleanup = null;
-  };
+    const applyFrame = () => {
+      frameRequested = false;
+      for (const axis of axes) {
+        const pct = (pending[axis.sizeKey] * 100).toFixed(2);
+        tabpanels.style.setProperty(
+          axis.gridTemplate,
+          `${pct}% calc(100% - ${pct}%)`,
+        );
+        tabpanels.style.setProperty(axis.cssVar, `${pct}%`);
+      }
+    };
 
-  const onMouseUp = () => {
-    applyFrame();
-    cleanup();
-    log.debug(`[gridDrag:row:end] ratio=${pendingRatio.toFixed(3)}`);
-    setSplitViewPaneSizes((prev) => ({ ...prev, gridRowRatio: pendingRatio }));
-  };
+    const onMouseMove = (ev: MouseEvent) => {
+      for (const axis of axes) {
+        const ratio =
+          (ev[axis.mouseProperty] - tabpanelsRect[axis.rectStart]) /
+          tabpanelsRect[axis.rectSize];
+        pending[axis.sizeKey] = Math.max(0.15, Math.min(0.85, ratio));
+      }
+      if (!frameRequested) {
+        frameRequested = true;
+        requestAnimationFrame(applyFrame);
+      }
+    };
 
-  activeDragCleanup?.();
-  activeDragCleanup = cleanup;
-  document?.addEventListener("mousemove", onMouseMove);
-  document?.addEventListener("mouseup", onMouseUp);
+    const cleanup = () => {
+      tabpanels.removeAttribute("data-floorp-dragging");
+      document?.removeEventListener("mousemove", onMouseMove);
+      document?.removeEventListener("mouseup", onMouseUp);
+      if (activeDragCleanup === cleanup) activeDragCleanup = null;
+    };
+
+    const onMouseUp = () => {
+      applyFrame();
+      cleanup();
+      log.debug(
+        `[gridDrag:${label}:end] ${axes.map((a) => `${a.sizeKey}=${pending[a.sizeKey].toFixed(3)}`).join(", ")}`,
+      );
+      setSplitViewPaneSizes((prev) => {
+        const updated = { ...prev };
+        for (const axis of axes) {
+          updated[axis.sizeKey] = pending[axis.sizeKey];
+        }
+        return updated;
+      });
+    };
+
+    // Cancel any prior drag, register this one
+    activeDragCleanup?.();
+    activeDragCleanup = cleanup;
+    document?.addEventListener("mousemove", onMouseMove);
+    document?.addEventListener("mouseup", onMouseUp);
+  };
 }
 
-function onGridCenterHandleMouseDown(e: MouseEvent): void {
-  e.preventDefault();
-  const tabpanels = getTabpanels() as HTMLElement | null;
-  if (!tabpanels) return;
-
-  log.debug("[gridDrag:center:start]");
-  tabpanels.setAttribute("data-floorp-dragging", "true");
-
-  const tabpanelsRect = tabpanels.getBoundingClientRect();
-  let frameRequested = false;
-  let pendingColRatio = splitViewPaneSizes().gridColRatio;
-  let pendingRowRatio = splitViewPaneSizes().gridRowRatio;
-
-  const applyFrame = () => {
-    frameRequested = false;
-    const colPct = (pendingColRatio * 100).toFixed(2);
-    const rowPct = (pendingRowRatio * 100).toFixed(2);
-    tabpanels.style.setProperty("grid-template-columns", `${colPct}% calc(100% - ${colPct}%)`);
-    tabpanels.style.setProperty("grid-template-rows", `${rowPct}% calc(100% - ${rowPct}%)`);
-    tabpanels.style.setProperty("--floorp-grid-col-ratio", `${colPct}%`);
-    tabpanels.style.setProperty("--floorp-grid-row-ratio", `${rowPct}%`);
-  };
-
-  const onMouseMove = (e: MouseEvent) => {
-    const colRatio = (e.clientX - tabpanelsRect.left) / tabpanelsRect.width;
-    const rowRatio = (e.clientY - tabpanelsRect.top) / tabpanelsRect.height;
-    pendingColRatio = Math.max(0.15, Math.min(0.85, colRatio));
-    pendingRowRatio = Math.max(0.15, Math.min(0.85, rowRatio));
-    if (!frameRequested) {
-      frameRequested = true;
-      requestAnimationFrame(applyFrame);
-    }
-  };
-
-  const cleanup = () => {
-    tabpanels.removeAttribute("data-floorp-dragging");
-    document?.removeEventListener("mousemove", onMouseMove);
-    document?.removeEventListener("mouseup", onMouseUp);
-    if (activeDragCleanup === cleanup) activeDragCleanup = null;
-  };
-
-  const onMouseUp = () => {
-    applyFrame();
-    cleanup();
-    log.debug(`[gridDrag:center:end] col=${pendingColRatio.toFixed(3)}, row=${pendingRowRatio.toFixed(3)}`);
-    setSplitViewPaneSizes((prev) => ({
-      ...prev,
-      gridColRatio: pendingColRatio,
-      gridRowRatio: pendingRowRatio,
-    }));
-  };
-
-  activeDragCleanup?.();
-  activeDragCleanup = cleanup;
-  document?.addEventListener("mousemove", onMouseMove);
-  document?.addEventListener("mouseup", onMouseUp);
-}
+const onGridColHandleMouseDown = createGridDragHandler([COL_AXIS]);
+const onGridRowHandleMouseDown = createGridDragHandler([ROW_AXIS]);
+const onGridCenterHandleMouseDown = createGridDragHandler([COL_AXIS, ROW_AXIS]);
 
 // ===== Utilities =====
 

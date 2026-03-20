@@ -4,7 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { splitViewConfig, setSplitViewConfig } from "../data/config.js";
-import type { SplitViewLayout } from "../data/types.js";
+import type { SplitViewLayout, SplitViewTab } from "../data/types.js";
+import { getGBrowser } from "../data/types.js";
 
 const log = console.createInstance({ prefix: "nora@split-view-picker" });
 
@@ -57,24 +58,12 @@ function onPopupShowing(): void {
     }
   }
 
-  const activeSplitView = (globalThis as any).gBrowser?.activeSplitView;
+  const gBrowser = getGBrowser();
+  const activeSplitView = gBrowser?.activeSplitView;
   const currentPaneCount = activeSplitView?.tabs?.length ?? 2;
   const currentLayout = splitViewConfig().layout;
 
   log.debug(`[popupShowing] panes=${currentPaneCount}, currentLayout=${currentLayout}, activeSplitView=${!!activeSplitView}`);
-
-  // Log tab state for debugging
-  if (activeSplitView) {
-    const tabs = activeSplitView.tabs;
-    for (let i = 0; i < tabs.length; i++) {
-      const tab = tabs[i];
-      log.debug(
-        `[popupShowing] tab[${i}]: linkedBrowser=${!!tab.linkedBrowser}, ` +
-        `linkedPanel=${tab.linkedPanel}, selected=${tab.selected}, ` +
-        `splitview=${!!tab.splitview}`
-      );
-    }
-  }
 
   for (const opt of LAYOUT_OPTIONS) {
     if (currentPaneCount < opt.minPanes) continue;
@@ -132,7 +121,7 @@ function removeFloorpMenuItems(menu: Element): void {
 }
 
 function addPaneToActiveSplitView(): void {
-  const gBrowser = (globalThis as any).gBrowser;
+  const gBrowser = getGBrowser();
   const activeSplitView = gBrowser?.activeSplitView;
   if (!activeSplitView) {
     log.warn("[addPane] no activeSplitView");
@@ -153,8 +142,9 @@ function addPaneToActiveSplitView(): void {
 }
 
 function removePaneFromActiveSplitView(): void {
-  const gBrowser = (globalThis as any).gBrowser;
-  const activeSplitView = gBrowser?.activeSplitView;
+  const gBrowser = getGBrowser();
+  if (!gBrowser) return;
+  const activeSplitView = gBrowser.activeSplitView;
   if (!activeSplitView || activeSplitView.tabs.length <= 2) {
     log.warn(`[removePane] cannot remove: tabs=${activeSplitView?.tabs?.length ?? 0}`);
     return;
@@ -164,13 +154,9 @@ function removePaneFromActiveSplitView(): void {
   const lastTab = tabs[tabs.length - 1];
   log.debug(`[removePane] removing tab: linkedPanel=${lastTab.linkedPanel}, linkedBrowser=${!!lastTab.linkedBrowser}`);
 
-  if (!gBrowser.moveTabToSplitView) {
-    log.warn("[removePane] gBrowser.moveTabToSplitView not available");
-    return;
-  }
   gBrowser.moveTabToSplitView(lastTab, null);
 
-  const remainingTabs = tabs.filter((t: any) => t !== lastTab);
+  const remainingTabs = tabs.filter((t: SplitViewTab) => t !== lastTab);
   log.debug(`[removePane] remainingTabs=${remainingTabs.length}`);
   if (remainingTabs.length >= 2) {
     gBrowser.showSplitViewPanels(remainingTabs);

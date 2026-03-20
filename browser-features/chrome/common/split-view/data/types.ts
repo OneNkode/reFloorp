@@ -5,6 +5,67 @@
 
 export type SplitViewLayout = "horizontal" | "vertical" | "grid-2x2";
 
+// ===== Firefox/Gecko API types for split-view =====
+
+/** A Firefox tab relevant to split view operations. */
+export interface SplitViewTab {
+  linkedBrowser: XULElement | null;
+  linkedPanel: string;
+  splitview: XULElement | null;
+  selected: boolean;
+}
+
+/** The tab-split-view-wrapper custom element. */
+export interface SplitViewWrapper {
+  tabs: SplitViewTab[];
+  addTabs(tabs: SplitViewTab[]): void;
+  reverseTabs(): void;
+}
+
+/** MozTabpanels custom element with split-view properties. */
+export interface MozTabpanels extends XULElement {
+  splitViewPanels: string[];
+  isSplitViewActive: XULElement | null;
+}
+
+/** gBrowser subset used by split-view code. */
+export interface SplitViewGBrowser {
+  tabpanels: MozTabpanels | null;
+  tabContainer: XULElement | null;
+  selectedTab: SplitViewTab;
+  activeSplitView: SplitViewWrapper | null;
+  showSplitViewPanels(tabs: SplitViewTab[]): void;
+  moveTabBefore(tab: SplitViewTab, beforeTab: SplitViewTab): void;
+  moveTabToSplitView(
+    tab: SplitViewTab,
+    wrapper: SplitViewWrapper | null,
+  ): void;
+  addTrustedTab(url: string): SplitViewTab;
+}
+
+/** TabContextMenu global. */
+export interface TabContextMenuGlobal {
+  contextTabs: SplitViewTab[];
+}
+
+/** Type-safe accessor for gBrowser. */
+export function getGBrowser(): SplitViewGBrowser | null {
+  return (
+    ((globalThis as Record<string, unknown>)
+      .gBrowser as SplitViewGBrowser | null) ?? null
+  );
+}
+
+/** Type-safe accessor for TabContextMenu. */
+export function getTabContextMenu(): TabContextMenuGlobal | null {
+  return (
+    ((globalThis as Record<string, unknown>)
+      .TabContextMenu as TabContextMenuGlobal | null) ?? null
+  );
+}
+
+// ===== Split-view configuration types =====
+
 export interface SplitViewConfig {
   layout: SplitViewLayout;
   maxPanes: number;
