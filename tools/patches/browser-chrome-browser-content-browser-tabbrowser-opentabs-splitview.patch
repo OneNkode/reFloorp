@@ -1,11 +1,10 @@
 diff --git a/browser/chrome/browser/content/browser/tabbrowser/opentabs-splitview.mjs b/browser/chrome/browser/content/browser/tabbrowser/opentabs-splitview.mjs
-index 7bbc458..e24079e 100755
 --- ./browser/chrome/browser/content/browser/tabbrowser/opentabs-splitview.mjs
 +++ ./browser/chrome/browser/content/browser/tabbrowser/opentabs-splitview.mjs
-@@ -96,11 +96,38 @@ class OpenTabsInSplitView extends MozLitElement {
+@@ -96,10 +96,37 @@ class OpenTabsInSplitView extends MozLitElement {
      return gBrowser.selectedTab.splitview;
    }
- 
+
 -  onTabListRowClick(event) {
 +  /**
 +   * Find the tab that hosts this about:opentabs page.
@@ -42,3 +41,4 @@ index 7bbc458..e24079e 100755
 +      this.currentSplitView.replaceTab(this.hostTab, tab);
      }
    }
+
