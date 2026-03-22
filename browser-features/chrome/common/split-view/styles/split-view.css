@@ -4,7 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /* Hide Firefox's native single splitter when Floorp's advanced split view is active */
-#tabbrowser-tabpanels[splitview][data-floorp-split] > .split-view-splitter {
+#tabbrowser-tabpanels[data-floorp-split] > .split-view-splitter {
   display: none !important;
 }
 
@@ -14,8 +14,10 @@
  * then only makes `.deck-selected` and `.split-view-panel-active` visible.
  * For N-pane split view, ALL `.split-view-panel` elements must be visible,
  * not just those with `.split-view-panel-active`.
+ * Use `[data-floorp-split]` (not only `[splitview]`) so session-restore timing
+ * cannot leave panels visually hidden before native `splitview` is set.
  */
-#tabbrowser-tabpanels[splitview][data-floorp-split] > .split-view-panel {
+#tabbrowser-tabpanels[data-floorp-split] > .split-view-panel {
   -moz-subtree-hidden-only-visually: 0 !important;
   visibility: inherit !important;
   position: relative;
@@ -30,6 +32,31 @@
 }
 
 /*
+ * Deck-selected panel can still get opacity:0 on the inner <browser> while
+ * sibling split panes stay at 1 — looks like one gray / empty cell after
+ * restore. Force every split pane's browser visible.
+ *
+ * Upstream also sets opacity:0 on [blank] / [pendingpaint] in
+ * browser/themes/shared/tabbrowser/content-area.css — beat it explicitly so
+ * split panes do not stay invisible while attributes catch up after restore.
+ */
+#tabbrowser-tabpanels[data-floorp-split] > .split-view-panel browser {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+#tabbrowser-tabpanels[data-floorp-split]
+  > .split-view-panel
+  browser:is([blank], [pendingpaint]) {
+  opacity: 1 !important;
+}
+
+/* Subtree hiding can still apply to nested anonymous/layout under the panel. */
+#tabbrowser-tabpanels[data-floorp-split] > .split-view-panel * {
+  -moz-subtree-hidden-only-visually: 0 !important;
+}
+
+/*
  * Hide non-split-view panel children from flex/grid layout.
  * When tabpanels switches from deck (stack) to flex/grid display,
  * ALL children become layout items — even panels hidden via
@@ -38,7 +65,7 @@
  * Explicitly collapse them so only .split-view-panel and our handles
  * participate in the layout.
  */
-#tabbrowser-tabpanels[splitview][data-floorp-split] > :not(.split-view-panel):not(.split-view-splitter):not(.floorp-split-handle):not(.floorp-grid-handle) {
+#tabbrowser-tabpanels[data-floorp-split] > :not(.split-view-panel):not(.split-view-splitter):not(.floorp-split-handle):not(.floorp-grid-handle) {
   display: none !important;
 }
 
@@ -168,11 +195,13 @@
 }
 
 /* ===== Vertical layout override ===== */
-#tabbrowser-tabpanels[splitview][split-view-layout="vertical"] {
+#tabbrowser-tabpanels[splitview][split-view-layout="vertical"],
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="vertical"] {
   flex-direction: column;
 }
 
-#tabbrowser-tabpanels[splitview][split-view-layout="vertical"] > .split-view-panel {
+#tabbrowser-tabpanels[splitview][split-view-layout="vertical"] > .split-view-panel,
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="vertical"] > .split-view-panel {
   --panel-min-height: 100px;
   min-height: var(--panel-min-height);
   max-height: calc(100% - var(--panel-min-height));
@@ -189,7 +218,8 @@
  * cell placement. Non-split-view children must be collapsed so they don't
  * create extra implicit grid tracks.
  */
-#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] {
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"],
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] {
   display: grid !important;
   position: relative;
   grid-template-columns: 1fr 1fr;
@@ -197,33 +227,39 @@
 }
 
 /* Collapse non-split-view children so they don't participate in grid layout */
-#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > :not(.split-view-panel):not(.floorp-grid-handle) {
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > :not(.split-view-panel):not(.floorp-grid-handle),
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] > :not(.split-view-panel):not(.floorp-grid-handle) {
   display: none !important;
 }
 
 /* Explicitly place split-view panels into grid cells using the column attribute */
-#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel[column="0"] {
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel[column="0"],
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] > .split-view-panel[column="0"] {
   grid-row: 1;
   grid-column: 1;
 }
 
-#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel[column="1"] {
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel[column="1"],
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] > .split-view-panel[column="1"] {
   grid-row: 1;
   grid-column: 2;
 }
 
-#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel[column="2"] {
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel[column="2"],
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] > .split-view-panel[column="2"] {
   grid-row: 2;
   grid-column: 1;
 }
 
-#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel[column="3"] {
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel[column="3"],
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] > .split-view-panel[column="3"] {
   grid-row: 2;
   grid-column: 2;
 }
 
 /* Remove flex-specific constraints that break grid cell sizing */
-#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel {
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel,
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] > .split-view-panel {
   max-width: unset !important;
   min-width: unset !important;
   max-height: unset !important;
@@ -235,14 +271,17 @@
 }
 
 /* Ensure the browserContainer fills the grid cell */
-#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel > .browserContainer {
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel > .browserContainer,
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] > .split-view-panel > .browserContainer {
   min-height: 0;
   min-width: 0;
 }
 
 /* Ensure custom handles are visible even in non-selected panels */
 #tabbrowser-tabpanels[splitview] .floorp-split-handle,
-#tabbrowser-tabpanels[splitview] .floorp-grid-handle {
+#tabbrowser-tabpanels[splitview] .floorp-grid-handle,
+#tabbrowser-tabpanels[data-floorp-split] .floorp-split-handle,
+#tabbrowser-tabpanels[data-floorp-split] .floorp-grid-handle {
   visibility: visible !important;
   -moz-subtree-hidden-only-visually: 0 !important;
 }
@@ -305,11 +344,11 @@
  * stay within the pane bounds (unlike outline, which can be clipped in grid).
  * Transition is on the base rule so removal also animates smoothly.
  */
-#tabbrowser-tabpanels[splitview][data-floorp-split] > .split-view-panel {
+#tabbrowser-tabpanels[data-floorp-split] > .split-view-panel {
   transition: box-shadow 150ms ease;
 }
 
-#tabbrowser-tabpanels[splitview][data-floorp-split] > .split-view-panel[data-floorp-active-pane] {
+#tabbrowser-tabpanels[data-floorp-split] > .split-view-panel[data-floorp-active-pane] {
   box-shadow: inset 0 0 0 2px var(--focus-outline-color);
   border-radius: 2px;
 }
@@ -334,7 +373,7 @@
   box-sizing: border-box;
 }
 
-#tabbrowser-tabpanels[splitview][data-floorp-split] > .split-view-panel:hover > .floorp-pane-drag-grip {
+#tabbrowser-tabpanels[data-floorp-split] > .split-view-panel:hover > .floorp-pane-drag-grip {
   opacity: 0.7;
 }
 
@@ -357,11 +396,11 @@
   background-position: center;
 }
 
-#tabbrowser-tabpanels[splitview][data-floorp-split] > .split-view-panel[data-floorp-drag-source] {
+#tabbrowser-tabpanels[data-floorp-split] > .split-view-panel[data-floorp-drag-source] {
   opacity: 0.5;
   box-shadow: inset 0 0 0 2px var(--focus-outline-color) !important;
 }
 
-#tabbrowser-tabpanels[splitview][data-floorp-split] > .split-view-panel[data-floorp-drop-target] {
+#tabbrowser-tabpanels[data-floorp-split] > .split-view-panel[data-floorp-drop-target] {
   box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--focus-outline-color) 60%, transparent) !important;
 }

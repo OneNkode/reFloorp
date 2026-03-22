@@ -101,3 +101,14 @@ export const PREF_SPLIT_VIEW_SESSION_STATE = "floorp.splitView.sessionState";
 
 /** Session-persisted DOM attribute: tabs sharing one split view use the same value. */
 export const SPLIT_VIEW_GROUP_ATTRIBUTE = "floorpSplitViewGroupId";
+
+/**
+ * SessionStore.setCustomTabValue key for the same group id (modern Firefox has no
+ * persistTabAttribute on window.SessionStore).
+ */
+export const SPLIT_VIEW_GROUP_SESSION_KEY = "floorp.splitViewGroupId";
+
+/** 0-based pane order within the split (left-to-right / grid slot order). */
+export const SPLIT_VIEW_PANE_INDEX_ATTRIBUTE = "floorpSplitViewPaneIndex";
+
+export const SPLIT_VIEW_PANE_INDEX_SESSION_KEY = "floorp.splitViewPaneIndex";

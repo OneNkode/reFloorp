@@ -11,6 +11,16 @@ import {
 } from "../components/split-view-splitters.js";
 import { clearGridStyles } from "../layout.js";
 import type { PatchState } from "./patch-state.js";
+import { applySplitViewSessionMarkersForTabs } from "./session-restore.js";
+import {
+  ensureSplitPanelsActiveClassFromState,
+  refreshActiveSplitPaneIndicator,
+} from "./active-pane-tracker.js";
+import { logTabpanelsSplitDiagnostics } from "./split-view-diagnostics.js";
+import {
+  ensureSplitPaneTabBrowsersAreWarmed,
+  scheduleSplitPaneWarmRetries,
+} from "./activate-split-pane-browsers.js";
 
 export interface TabpanelsPatchResult {
   unpatch(): void;
@@ -283,6 +293,11 @@ export function patchTabpanels(
       state.inShowSplitViewPanels = true;
       try {
         origShowSplitViewPanels!(validTabs);
+        applySplitViewSessionMarkersForTabs(
+          logger,
+          validTabs,
+          "showSplitViewPanels",
+        );
         try {
           const ids = tabpanels.splitViewPanels;
           logger.debug(
@@ -293,6 +308,19 @@ export function patchTabpanels(
             `[patch:showSplitViewPanels:afterNative] could not read splitViewPanels: ${readErr}`,
           );
         }
+        logTabpanelsSplitDiagnostics("showSplitViewPanels:afterNative");
+        scheduleSplitPaneWarmRetries(logger);
+        const bumpSplitViewUi = (phase: string): void => {
+          ensureSplitPaneTabBrowsersAreWarmed(logger);
+          ensureSplitPanelsActiveClassFromState();
+          refreshActiveSplitPaneIndicator();
+          logTabpanelsSplitDiagnostics(`showSplitViewPanels:bump:${phase}`);
+        };
+        bumpSplitViewUi("sync");
+        requestAnimationFrame(() => {
+          bumpSplitViewUi("rAF1");
+          requestAnimationFrame(() => bumpSplitViewUi("rAF2"));
+        });
       } catch (e) {
         logger.error(
           `[patch:showSplitViewPanels] original threw: ${e}`,
