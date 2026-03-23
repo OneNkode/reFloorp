@@ -224,11 +224,15 @@ export class FingerprintTextCache {
 
   /**
    * Retrieve pre-computed text for an element.
-   * Falls back to the full TreeWalker approach if precompute() was not called.
+   * Falls back to the full TreeWalker approach if precompute() was not called
+   * or the element is not in the cache (e.g., from a different DOM clone).
    */
   getTextContent(el: Element, maxLength: number): string {
     if (this.computed) {
-      return (this.cache.get(el) || "").replace(/\s+/g, "").slice(0, maxLength);
+      const cached = this.cache.get(el);
+      if (cached !== undefined) {
+        return cached.replace(/\s+/g, "").slice(0, maxLength);
+      }
     }
     return getFilteredTextContent(el).replace(/\s+/g, "").slice(0, maxLength);
   }

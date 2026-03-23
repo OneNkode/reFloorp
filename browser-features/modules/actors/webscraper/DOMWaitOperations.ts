@@ -3,6 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+import { isElementVisible } from "./utils.ts";
 import type { DOMOpsDeps } from "./DOMDeps.ts";
 
 const { setTimeout: timerSetTimeout, clearTimeout: timerClearTimeout } =
@@ -42,25 +43,9 @@ export class DOMWaitOperations {
    */
   private isVisible(element: Element | null): boolean {
     if (!element) return false;
-
     const win = this.contentWindow;
     if (!win) return false;
-
-    try {
-      const style = win.getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-
-      return (
-        !!style &&
-        style.getPropertyValue("display") !== "none" &&
-        style.getPropertyValue("visibility") !== "hidden" &&
-        style.getPropertyValue("opacity") !== "0" &&
-        rect.width > 0 &&
-        rect.height > 0
-      );
-    } catch {
-      return false;
-    }
+    return isElementVisible(element, win);
   }
 
   /**
@@ -95,11 +80,6 @@ export class DOMWaitOperations {
 
     if (signal?.aborted) return false;
 
-    // For detached state, we need to wait for element to be removed
-    if (state === "detached") {
-      return this.waitForDetached(selector, timeout, signal);
-    }
-
     return await new Promise<boolean>((resolve) => {
       let finished = false;
 
@@ -129,83 +109,6 @@ export class DOMWaitOperations {
         try {
           const found = doc.querySelector(selector);
           if (this.matchesState(found, state)) {
-            finish(true);
-          }
-        } catch (e) {
-          if (this.isDeadObjectError(e)) {
-            finish(false);
-            return;
-          }
-          console.error("DOMWaitOperations: Error waiting for element:", e);
-          finish(false);
-        }
-      };
-
-      const win = this.contentWindow;
-      const MutationObs = win?.MutationObserver ?? globalThis.MutationObserver;
-      let observer: MutationObserver | null = null;
-
-      const timeoutId = Number(
-        timerSetTimeout(() => finish(false), Math.max(0, timeout)),
-      );
-
-      // Initial check before observing
-      safeCheck();
-      if (finished) return;
-
-      if (MutationObs) {
-        try {
-          observer = new MutationObs(() => safeCheck());
-          observer.observe(doc, { childList: true, subtree: true });
-        } catch {
-          // Fallback: final timeout will resolve
-        }
-      }
-    });
-  }
-
-  /**
-   * Wait for an element to be detached from the DOM
-   */
-  private async waitForDetached(
-    selector: string,
-    timeout: number,
-    signal?: AbortSignal,
-  ): Promise<boolean> {
-    const doc = this.document;
-    if (!doc) return false;
-
-    if (signal?.aborted) return false;
-
-    return await new Promise<boolean>((resolve) => {
-      let finished = false;
-
-      const finish = (result: boolean) => {
-        if (finished) return;
-        finished = true;
-        try {
-          observer?.disconnect();
-        } catch {
-          // ignore
-        }
-        if (timeoutId !== null) {
-          timerClearTimeout(timeoutId);
-        }
-        if (signal && abortHandler) {
-          signal.removeEventListener("abort", abortHandler);
-        }
-        resolve(result);
-      };
-
-      const abortHandler = () => finish(false);
-      if (signal) {
-        signal.addEventListener("abort", abortHandler, { once: true });
-      }
-
-      const safeCheck = () => {
-        try {
-          const found = doc.querySelector(selector);
-          if (!found) {
             finish(true);
           }
         } catch (e) {

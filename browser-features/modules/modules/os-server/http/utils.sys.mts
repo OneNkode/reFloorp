@@ -22,6 +22,17 @@ export function err(...args: unknown[]) {
   console.error("[Floorp OS-Server]", ...args);
 }
 
+/**
+ * Performance logging — only emits when the pref `floorp.os.perf.log` is true.
+ * Zero overhead when disabled (single fast pref lookup).
+ *
+ * To enable: set `floorp.os.perf.log` = true in about:config
+ */
+export function logPerf(label: string, ms: number) {
+  if (!Services.prefs.getBoolPref("floorp.os.perf.log", false)) return;
+  console.debug(`[Floorp OS-Perf] ${label} ${ms}ms`);
+}
+
 // -- HTTP parsing -------------------------------------------------------------
 
 export function parseHeaders(raw: string): HeadersMap {

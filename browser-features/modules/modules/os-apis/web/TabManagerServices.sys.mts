@@ -87,11 +87,23 @@ const TAB_MANAGER_ACTOR_SETS: Set<XULBrowserElement> = new Set();
  * @returns The browser window.
  */
 function getBrowserWindow() {
-  const window = Services.wm.getMostRecentWindow("navigator:browser");
-  if (!window) {
-    throw new Error("Could not get browser window.");
+  // Panel windows (floorpWebPanelId) are navigator:browser windows but don't
+  // have gBrowser initialized (browser-init.patch skips init for them).
+  // Enumerate all windows and return the first one with gBrowser defined.
+  try {
+    const enumerator = Services.wm.getEnumerator(
+      "navigator:browser",
+    ) as nsISimpleEnumerator;
+    while (enumerator?.hasMoreElements?.()) {
+      const win = enumerator.getNext() as Window & { gBrowser: GBrowser };
+      if (win && !win.closed && win.gBrowser) {
+        return win;
+      }
+    }
+  } catch {
+    // ignore
   }
-  return window;
+  throw new Error("Could not get browser window.");
 }
 
 /**
@@ -105,19 +117,13 @@ function getBrowserWindows(): Array<Window & { gBrowser: GBrowser }> {
     ) as nsISimpleEnumerator;
     while (enumerator?.hasMoreElements?.()) {
       const win = enumerator.getNext() as Window & { gBrowser: GBrowser };
-      if (win && !win.closed) {
+      // Skip panel windows (floorpWebPanelId) — they don't have gBrowser.
+      if (win && !win.closed && win.gBrowser) {
         windows.push(win);
       }
     }
   } catch {
     // ignore
-  }
-  if (windows.length === 0) {
-    try {
-      windows.push(getBrowserWindow() as Window & { gBrowser: GBrowser });
-    } catch {
-      // ignore
-    }
   }
   return windows;
 }

@@ -131,6 +131,24 @@ export class NRWebScraperChild extends JSWindowActorChild {
    * Handles incoming messages from the parent process
    */
   receiveMessage(message: { name: string; data?: NRWebScraperMessageData }) {
+    if (!Services.prefs.getBoolPref("floorp.os.perf.log", false)) {
+      return this._dispatch(message);
+    }
+    const _t0 = Date.now();
+    const result = this._dispatch(message);
+    if (result && typeof (result as Promise<unknown>).then === "function") {
+      return (result as Promise<unknown>).then((v) => {
+        console.debug(
+          `[Floorp OS-Perf] DOM ${message.name} ${Date.now() - _t0}ms`,
+        );
+        return v;
+      });
+    }
+    console.debug(`[Floorp OS-Perf] DOM ${message.name} ${Date.now() - _t0}ms`);
+    return result;
+  }
+
+  private _dispatch(message: { name: string; data?: NRWebScraperMessageData }) {
     const domOps = this.getDOMOps();
     const formOps = this.getFormOps();
     const screenshotOps = this.getScreenshotOps();

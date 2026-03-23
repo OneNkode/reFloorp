@@ -66,6 +66,37 @@ export class DOMWriteOperations {
     return false;
   }
 
+  /**
+   * Common context setup for DOM write operations.
+   * Unwraps Xray security wrappers and prepares event constructors
+   * shared by setInnerHTML, setTextContent, and dispatchTextInput.
+   */
+  private getWriteContext(element: HTMLElement): {
+    rawWin: RawContentWindow;
+    rawDoc: Document;
+    rawElement: HTMLElement;
+    InputEv: typeof InputEvent | null;
+    EventCtor: typeof Event;
+    cloneOpts: (opts: object) => object;
+  } | null {
+    const win = this.contentWindow;
+    const rawWin = unwrapWindow(win);
+    const rawDoc = this.document
+      ? unwrapDocument(
+          this.document as Document & Partial<{ wrappedJSObject: Document }>,
+        )
+      : null;
+    if (!rawWin || !rawDoc) return null;
+    const rawElement = unwrapElement(
+      element as HTMLElement & Partial<{ wrappedJSObject: HTMLElement }>,
+    );
+    const InputEv = (rawWin.InputEvent ?? null) as typeof InputEvent | null;
+    const EventCtor = rawWin.Event ?? globalThis.Event;
+    const cloneOpts = (opts: object) =>
+      this.deps.eventDispatcher.cloneIntoPageContext(opts);
+    return { rawWin, rawDoc, rawElement, InputEv, EventCtor, cloneOpts };
+  }
+
   async inputElement(
     selector: string,
     value: string,
@@ -588,22 +619,9 @@ export class DOMWriteOperations {
       this.deps.eventDispatcher.scrollIntoViewIfNeeded(element);
       this.deps.eventDispatcher.focusElementSoft(element);
 
-      const win = this.contentWindow;
-      const rawWin = unwrapWindow(win);
-      const rawDoc = this.document
-        ? unwrapDocument(
-            this.document as Document & Partial<{ wrappedJSObject: Document }>,
-          )
-        : null;
-      const rawElement = unwrapElement(
-        element as HTMLElement & Partial<{ wrappedJSObject: HTMLElement }>,
-      );
-      if (!rawWin || !rawDoc) return false;
-
-      const InputEv = rawWin.InputEvent ?? null;
-      const EventCtor = rawWin.Event ?? globalThis.Event;
-      const cloneOpts = (opts: object) =>
-        this.deps.eventDispatcher.cloneIntoPageContext(opts);
+      const ctx = this.getWriteContext(element);
+      if (!ctx) return false;
+      const { rawWin, rawDoc, rawElement, InputEv, EventCtor, cloneOpts } = ctx;
 
       // 1. Fire beforeinput (this is what Draft.js listens for)
       if (InputEv) {
@@ -721,26 +739,13 @@ export class DOMWriteOperations {
 
       // SECURITY WARNING: This method directly sets innerHTML which can execute malicious scripts.
       // Only use with trusted content. For user-provided content, consider using textContent instead.
-      const win = this.contentWindow;
-      const rawWin = unwrapWindow(win);
-      const rawDoc = this.document
-        ? unwrapDocument(
-            this.document as Document & Partial<{ wrappedJSObject: Document }>,
-          )
-        : null;
-      const rawElement = unwrapElement(
-        element as HTMLElement & Partial<{ wrappedJSObject: HTMLElement }>,
-      );
-      if (!rawWin || !rawDoc) return false;
+      const ctx = this.getWriteContext(element);
+      if (!ctx) return false;
+      const { rawWin, rawDoc, rawElement, InputEv, EventCtor, cloneOpts } = ctx;
 
       if (this.tryExecCommand(rawWin, rawDoc, rawElement, "insertHTML", html)) {
         return true;
       }
-
-      const EventCtor = rawWin.Event ?? globalThis.Event;
-      const InputEv = (rawWin?.InputEvent ?? null) as typeof InputEvent | null;
-      const cloneOpts = (opts: object) =>
-        this.deps.eventDispatcher.cloneIntoPageContext(opts);
 
       if (InputEv) {
         rawElement.dispatchEvent(
@@ -822,27 +827,14 @@ export class DOMWriteOperations {
         .applyHighlight(element, options, elementInfo)
         .catch(() => {});
 
-      const win = this.contentWindow;
-      const rawWin = unwrapWindow(win);
-      const rawDoc = this.document
-        ? unwrapDocument(
-            this.document as Document & Partial<{ wrappedJSObject: Document }>,
-          )
-        : null;
-      const rawElement = unwrapElement(
-        element as HTMLElement & Partial<{ wrappedJSObject: HTMLElement }>,
-      );
-      if (!rawWin || !rawDoc) return false;
+      const ctx = this.getWriteContext(element);
+      if (!ctx) return false;
+      const { rawWin, rawDoc, rawElement, InputEv, EventCtor, cloneOpts } = ctx;
 
       // Note: tryExecCommand is responsible for dispatching input/change events.
       if (this.tryExecCommand(rawWin, rawDoc, rawElement, "insertText", text)) {
         return true;
       }
-
-      const EventCtor = rawWin.Event ?? globalThis.Event;
-      const InputEv = rawWin.InputEvent ?? null;
-      const cloneOpts = (opts: object) =>
-        this.deps.eventDispatcher.cloneIntoPageContext(opts);
 
       if (InputEv) {
         rawElement.dispatchEvent(

@@ -7,6 +7,10 @@ import type { DOMOpsDeps } from "./DOMDeps.ts";
 import type { ClickElementOptions } from "./types.ts";
 import { unwrapElement, unwrapWindow } from "./utils.ts";
 
+const { setTimeout: timerSetTimeout } = ChromeUtils.importESModule(
+  "resource://gre/modules/Timer.sys.mjs",
+);
+
 /**
  * Interaction-oriented DOM utilities (click/hover/keys/drag)
  */
@@ -26,13 +30,17 @@ export class DOMActionOperations {
    *
    * Steps:
    * 1. Find element
-   * 2. Actionability check (visibility, size, pointer-events)
+   * 2. Actionability check (visibility, size)
    * 3. Scroll into view
    * 4. Wait for position stability (CSS transitions)
-   * 5. Hit-test check (no obscuring element)
-   * 6. Fire coordinate-based mouse events via nsIDOMWindowUtils
+   * 5. Fire coordinate-based mouse events via nsIDOMWindowUtils
    *
    * Falls back to DOM .click() if nsIDOMWindowUtils is unavailable.
+   *
+   * Note: hit-test via elementFromPoint is intentionally omitted — in Firefox
+   * JSWindowActorChild (Xray context), elementFromPoint returns ancestor elements
+   * due to a pointer-events Xray quirk. sendMouseEvent uses the native rendering
+   * engine's hit-testing which correctly finds the target element.
    */
   async clickElement(
     selector: string,
@@ -105,22 +113,23 @@ export class DOMActionOperations {
           const stable = await this.waitForStable(el, remaining);
           if (!stable) continue;
 
-          // Hit-test: ensure no other element obscures the click point
-          const rect = el.getBoundingClientRect();
-          const x = rect.left + rect.width / 2;
-          const y = rect.top + rect.height / 2;
-          const topEl = this.document?.elementFromPoint(x, y);
-          if (topEl && topEl !== el && !el.contains(topEl)) {
-            await this.delay(200);
-            continue;
-          }
         }
 
-        // Attempt coordinate-based click via nsIDOMWindowUtils
+        // Compute click coordinates once (after any stability wait)
         const rect = el.getBoundingClientRect();
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
 
+        if (!force) {
+          // Note: hit-test via elementFromPoint is intentionally omitted.
+          // In Firefox JSWindowActorChild (Xray context), elementFromPoint returns
+          // ancestor elements for interactive children (pointer-events quirk), and
+          // Node.contains() comparisons across Xray/raw wrapper boundaries are
+          // unreliable. The coordinate-based sendMouseEvent below uses the native
+          // rendering engine's hit-testing which is not affected by this quirk.
+        }
+
+        // Attempt coordinate-based click via nsIDOMWindowUtils
         if (this.performMouseClick(x, y, button, clickCount)) {
           return true;
         }
@@ -193,52 +202,36 @@ export class DOMActionOperations {
     if (style.getPropertyValue("display") === "none") return false;
     if (style.getPropertyValue("visibility") === "hidden") return false;
     if (style.getPropertyValue("opacity") === "0") return false;
-    if (style.getPropertyValue("pointer-events") === "none") return false;
+    // Note: pointer-events check omitted — getPropertyValue("pointer-events")
+    // may return "none" for interactive elements in Firefox content process actors
+    // even when the element is genuinely clickable (Xray wrapper/computed style quirk).
 
     return true;
   }
 
   /**
    * Waits until the element's position/size stabilizes (CSS animation done).
+   * Uses a single before/after snapshot instead of polling to avoid Firefox's
+   * background-tab interval throttling (which clamps setInterval to ~1000ms).
    */
-  private waitForStable(
+  private async waitForStable(
     el: HTMLElement,
     timeout: number,
   ): Promise<boolean> {
-    return new Promise((resolve) => {
-      let lastRect = el.getBoundingClientRect();
-      let stableFrames = 0;
-      const REQUIRED_STABLE_FRAMES = 3;
-      const POLL_INTERVAL = 50;
-
-      const timer = setInterval(() => {
-        const rect = el.getBoundingClientRect();
-        const dx = Math.abs(rect.x - lastRect.x);
-        const dy = Math.abs(rect.y - lastRect.y);
-        const dw = Math.abs(rect.width - lastRect.width);
-        const dh = Math.abs(rect.height - lastRect.height);
-
-        if (dx < 1 && dy < 1 && dw < 1 && dh < 1) {
-          stableFrames++;
-          if (stableFrames >= REQUIRED_STABLE_FRAMES) {
-            clearInterval(timer);
-            resolve(true);
-          }
-        } else {
-          stableFrames = 0;
-        }
-        lastRect = rect;
-      }, POLL_INTERVAL);
-
-      setTimeout(() => {
-        clearInterval(timer);
-        resolve(false);
-      }, timeout);
-    });
+    const initialRect = el.getBoundingClientRect();
+    await new Promise<void>((resolve) =>
+      timerSetTimeout(resolve, Math.min(100, timeout)),
+    );
+    const finalRect = el.getBoundingClientRect();
+    const dx = Math.abs(finalRect.x - initialRect.x);
+    const dy = Math.abs(finalRect.y - initialRect.y);
+    const dw = Math.abs(finalRect.width - initialRect.width);
+    const dh = Math.abs(finalRect.height - initialRect.height);
+    return dx < 2 && dy < 2 && dw < 2 && dh < 2;
   }
 
   private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise((resolve) => timerSetTimeout(resolve, ms));
   }
 
   async hoverElement(selector: string): Promise<boolean> {

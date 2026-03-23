@@ -30,6 +30,7 @@ import {
   getJSON,
   jsonResponse,
   log,
+  logPerf,
   notFound,
   parseRequestHead,
   parseURL,
@@ -394,7 +395,9 @@ class LocalHttpServer implements nsIServerSocketListener {
         params: match.params,
         json: jsonFn,
       };
+      const _t0 = Date.now();
       const result = await match.handler(ctx);
+      logPerf(`${method} ${pathname}`, Date.now() - _t0);
 
       // Stream handling
       if ("isStream" in result && result.isStream) {
@@ -442,8 +445,8 @@ class LocalHttpServer implements nsIServerSocketListener {
     } catch (e) {
       const msg = String(e ?? "");
       let response;
-      // Map common service errors to 404 when instance is missing
-      if (/instance\s+not\s+found/i.test(msg)) {
+      // Map common service errors to 404 when instance/browser is missing
+      if (/(?:instance|browser)\s+not\s+found/i.test(msg)) {
         response = notFound();
       } else {
         response = serverError(msg);

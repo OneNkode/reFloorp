@@ -5,7 +5,7 @@
 
 import type { DOMOpsDeps } from "./DOMDeps.ts";
 import type { GetTextOptions, AXNode } from "./types.ts";
-import { unwrapElement } from "./utils.ts";
+import { unwrapElement, isElementVisible } from "./utils.ts";
 import { TurndownService } from "./turndown/index.ts";
 import { findElementByFingerprint } from "./turndown/fingerprint.ts";
 
@@ -63,23 +63,14 @@ export class DOMReadOperations {
       // Scoped mode: return only the matching element's outerHTML
       if (options?.selector) {
         const el = doc.querySelector(options.selector);
-        return el ? (el.outerHTML as unknown as string) : null;
+        return el ? el.outerHTML : null;
       }
-
-      const html = doc.documentElement?.outerHTML;
 
       const docElement = doc.documentElement;
-      if (docElement) {
-        this.deps.highlightManager.runAsyncInspection(
-          docElement,
-          "inspectPageHtml",
-        );
-      }
+      if (!docElement) return null;
 
-      if (!html) {
-        return null;
-      }
-      return html.toString();
+      this.deps.highlightManager.runAsyncInspection(docElement, "inspectPageHtml");
+      return docElement.outerHTML;
     } catch (e) {
       console.error("DOMReadOperations: Error getting HTML:", e);
       return null;
@@ -131,16 +122,14 @@ export class DOMReadOperations {
 
   getElement(selector: string): string | null {
     try {
-      const element = this.document?.querySelector(selector) as Element | null;
+      const element = this.document?.querySelector(selector) ?? null;
       if (element) {
         this.deps.highlightManager.runAsyncInspection(
           element,
           "inspectGetElement",
-          {
-            selector,
-          },
+          { selector },
         );
-        return String((element as Element).outerHTML);
+        return element.outerHTML;
       }
       return null;
     } catch (e) {
@@ -342,22 +331,11 @@ export class DOMReadOperations {
 
   isVisible(selector: string): boolean {
     try {
-      const element = this.document?.querySelector(
-        selector,
-      ) as HTMLElement | null;
+      const element = this.document?.querySelector(selector) as HTMLElement | null;
       if (!element) return false;
-
-      const rect = element.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return false;
-
-      const style = this.contentWindow?.getComputedStyle(element);
-      if (!style) return false;
-
-      if (style.getPropertyValue("display") === "none") return false;
-      if (style.getPropertyValue("visibility") === "hidden") return false;
-      if (style.getPropertyValue("opacity") === "0") return false;
-
-      return true;
+      const win = this.contentWindow;
+      if (!win) return false;
+      return isElementVisible(element, win);
     } catch (e) {
       console.error("DOMReadOperations: Error checking visibility:", e);
       return false;

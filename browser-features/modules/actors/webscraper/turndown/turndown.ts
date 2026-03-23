@@ -135,18 +135,18 @@ export class TurndownService {
       return "";
     }
 
-    // Pre-compute text cache for O(1) fingerprint text lookups
+    // RootNode clones the input element (and applies collapseWhitespace),
+    // so the textCache must be built on the clone that process() will
+    // actually traverse — otherwise the WeakMap keys won't match.
+    const rootNode = RootNode(input, this.options);
     if (this.options.enableFingerprints && typeof input !== "string") {
       this.textCache = new FingerprintTextCache();
-      this.textCache.precompute(input);
+      this.textCache.precompute(rootNode);
     } else {
       this.textCache = undefined;
     }
 
-    const output = process.call(
-      this,
-      RootNode(input, this.options) as unknown as Node,
-    );
+    const output = process.call(this, rootNode as unknown as Node);
     let result = postProcess.call(this, output);
 
     // Append selector map if enabled and fingerprints were collected

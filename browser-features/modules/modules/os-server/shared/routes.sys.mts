@@ -53,6 +53,10 @@ function safeRoute<F extends (...args: never[]) => Promise<unknown>>(handler: F)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("Route handler error:", msg);
+      // Map "not found" service errors to 404
+      if (/(?:instance|browser)\s+not\s+found/i.test(msg)) {
+        return { status: 404, body: { error: msg } };
+      }
       return { status: 500, body: { error: "Internal server error" } };
     }
   }) as unknown as F;

@@ -36,3 +36,28 @@ export function unwrapDocument(
 ): Document {
   return doc.wrappedJSObject ?? doc;
 }
+
+/**
+ * Checks if an element is visible by examining its computed styles and dimensions.
+ * Shared by DOMReadOperations.isVisible and DOMWaitOperations.isVisible
+ * to avoid duplicating the same logic.
+ */
+export function isElementVisible(
+  element: Element,
+  win: Window & typeof globalThis,
+): boolean {
+  try {
+    const style = win.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return (
+      !!style &&
+      style.getPropertyValue("display") !== "none" &&
+      style.getPropertyValue("visibility") !== "hidden" &&
+      style.getPropertyValue("opacity") !== "0" &&
+      rect.width > 0 &&
+      rect.height > 0
+    );
+  } catch {
+    return false;
+  }
+}

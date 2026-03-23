@@ -34,6 +34,11 @@ interface WebScraperActor {
 
 // Global sets to prevent garbage collection of active components
 const SCRAPER_ACTOR_SETS: Set<XULBrowserElement> = new Set();
+
+function _perfLog(label: string, ms: number) {
+  if (!Services.prefs.getBoolPref("floorp.os.perf.log", false)) return;
+  console.debug(`[Floorp OS-Perf] IPC ${label} ${ms}ms`);
+}
 const FRAME = new HiddenFrame();
 
 /**
@@ -85,7 +90,10 @@ class webScraper {
     try {
       const actor = await this._getActorForBrowser(browser);
       if (!actor) return fallback;
-      return (await actor.sendQuery(queryName, data)) as T;
+      const _t0 = Date.now();
+      const result = (await actor.sendQuery(queryName, data)) as T;
+      _perfLog(queryName, Date.now() - _t0);
+      return result;
     } catch (e) {
       console.error(`Error in ${queryName}:`, e);
       return fallback;
