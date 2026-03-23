@@ -4,6 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import type { DOMOpsDeps } from "./DOMDeps.ts";
+import type { ClickElementOptions } from "./types.ts";
 import { unwrapElement, unwrapWindow } from "./utils.ts";
 
 /**
@@ -20,156 +21,224 @@ export class DOMActionOperations {
     return this.deps.getDocument();
   }
 
-  async clickElement(selector: string): Promise<boolean> {
-    try {
-      const element = this.document?.querySelector(
-        selector,
-      ) as HTMLElement | null;
-      if (!element) return false;
+  /**
+   * Playwright-style click with actionability checks and coordinate-based events.
+   *
+   * Steps:
+   * 1. Find element
+   * 2. Actionability check (visibility, size, pointer-events)
+   * 3. Scroll into view
+   * 4. Wait for position stability (CSS transitions)
+   * 5. Hit-test check (no obscuring element)
+   * 6. Fire coordinate-based mouse events via nsIDOMWindowUtils
+   *
+   * Falls back to DOM .click() if nsIDOMWindowUtils is unavailable.
+   */
+  async clickElement(
+    selector: string,
+    options: ClickElementOptions = {},
+  ): Promise<boolean> {
+    const {
+      button = "left",
+      clickCount = 1,
+      force = false,
+      timeout = 5000,
+    } = options;
+    const startTime = Date.now();
+    const MAX_RETRIES = 3;
 
-      const elementTagName = element.tagName?.toLowerCase() || "element";
-      const elementTextRaw = element.textContent?.trim() || "";
-      const truncatedText = this.deps.translationHelper.truncate(
-        elementTextRaw,
-        30,
-      );
-      const elementInfo =
-        elementTextRaw.length > 0
-          ? await this.deps.translationHelper.translate(
-              "clickElementWithText",
-              {
-                tag: elementTagName,
-                text: truncatedText,
-              },
-            )
-          : await this.deps.translationHelper.translate("clickElementNoText", {
-              tag: elementTagName,
-            });
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      if (Date.now() - startTime > timeout) return false;
 
       try {
-        void element.nodeType;
-      } catch {
-        return false;
-      }
+        const el = this.document?.querySelector(selector) as HTMLElement | null;
+        if (!el) {
+          await this.delay(100);
+          continue;
+        }
 
-      this.deps.eventDispatcher.scrollIntoViewIfNeeded(element);
-      this.deps.eventDispatcher.focusElementSoft(element);
-
-      const options = this.deps.highlightManager.getHighlightOptions("Click");
-
-      this.deps.highlightManager
-        .applyHighlight(element, options, elementInfo)
-        .catch(() => {});
-
-      const win = this.contentWindow ?? null;
-      const rawWin = unwrapWindow(win);
-      const rawElement = unwrapElement(
-        element as HTMLElement & Partial<{ wrappedJSObject: HTMLElement }>,
-      );
-      const Ev = (rawWin?.Event ?? globalThis.Event) as typeof Event;
-      const MouseEv = (rawWin?.MouseEvent ?? globalThis.MouseEvent ?? null) as
-        | typeof MouseEvent
-        | null;
-      const cloneOpts = (opts: object) =>
-        this.deps.eventDispatcher.cloneIntoPageContext(opts);
-
-      const tagName = (element.tagName || "").toUpperCase();
-      const isInput = tagName === "INPUT";
-      const isButton = tagName === "BUTTON";
-      const isLink = tagName === "A";
-      const inputType = isInput
-        ? ((element as HTMLInputElement).type || "").toLowerCase()
-        : "";
-
-      const triggerInputEvents = () => {
+        // Liveness check
         try {
-          rawElement.dispatchEvent(
-            new Ev("input", cloneOpts({ bubbles: true })),
-          );
-          rawElement.dispatchEvent(
-            new Ev("change", cloneOpts({ bubbles: true })),
-          );
-        } catch (err) {
-          console.warn(
-            "DOMActionOperations: input/change dispatch failed",
-            err,
-          );
+          void el.nodeType;
+        } catch {
+          continue;
         }
-      };
 
-      let stateChanged = false;
-
-      if (isInput) {
-        const inputEl = element as HTMLInputElement;
-        if (inputType === "checkbox") {
-          inputEl.checked = !inputEl.checked;
-          triggerInputEvents();
-          stateChanged = true;
-        } else if (inputType === "radio") {
-          if (!inputEl.checked) {
-            inputEl.checked = true;
-            triggerInputEvents();
-          }
-          stateChanged = true;
-        }
-      }
-
-      const rect = element.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-
-      let clickDispatched =
-        this.deps.eventDispatcher.dispatchPointerClickSequence(
-          element,
-          centerX,
-          centerY,
-          0,
+        // Highlight
+        const elementTagName = el.tagName?.toLowerCase() || "element";
+        const elementTextRaw = el.textContent?.trim() || "";
+        const truncatedText = this.deps.translationHelper.truncate(
+          elementTextRaw,
+          30,
         );
+        const elementInfo =
+          elementTextRaw.length > 0
+            ? await this.deps.translationHelper.translate(
+                "clickElementWithText",
+                { tag: elementTagName, text: truncatedText },
+              )
+            : await this.deps.translationHelper.translate(
+                "clickElementNoText",
+                { tag: elementTagName },
+              );
+        const hlOpts = this.deps.highlightManager.getHighlightOptions("Click");
+        this.deps.highlightManager
+          .applyHighlight(el, hlOpts, elementInfo)
+          .catch(() => {});
 
-      // Skip rawElement.click() for checkbox/radio — the state was already
-      // toggled above and a second click would revert it.
-      if (!stateChanged) {
+        if (!force) {
+          // Actionability check
+          if (!this.checkActionability(el)) {
+            await this.delay(100);
+            continue;
+          }
+
+          // Scroll into view
+          el.scrollIntoView({ block: "center", behavior: "instant" as ScrollBehavior });
+          await this.delay(50);
+
+          // Wait for stable position
+          const remaining = Math.min(
+            1000,
+            timeout - (Date.now() - startTime),
+          );
+          const stable = await this.waitForStable(el, remaining);
+          if (!stable) continue;
+
+          // Hit-test: ensure no other element obscures the click point
+          const rect = el.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const topEl = this.document?.elementFromPoint(x, y);
+          if (topEl && topEl !== el && !el.contains(topEl)) {
+            await this.delay(200);
+            continue;
+          }
+        }
+
+        // Attempt coordinate-based click via nsIDOMWindowUtils
+        const rect = el.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+
+        if (this.performMouseClick(x, y, button, clickCount)) {
+          return true;
+        }
+
+        // Fallback: legacy DOM click path
+        this.deps.eventDispatcher.scrollIntoViewIfNeeded(el);
+        this.deps.eventDispatcher.focusElementSoft(el);
+        this.deps.eventDispatcher.dispatchPointerClickSequence(el, x, y, 0);
+        const rawElement = unwrapElement(
+          el as HTMLElement & Partial<{ wrappedJSObject: HTMLElement }>,
+        );
         try {
           rawElement.click();
-          clickDispatched = true;
         } catch {
           // ignore
         }
+        return true;
+      } catch (e) {
+        console.error("DOMActionOperations: Error clicking element:", e);
+        return false;
       }
+    }
 
-      if (!clickDispatched && MouseEv) {
-        try {
-          rawElement.dispatchEvent(
-            new MouseEv(
-              "click",
-              this.deps.eventDispatcher.cloneEventInit({
-                bubbles: true,
-                cancelable: true,
-                composed: true,
-              }),
-            ),
-          );
-          clickDispatched = true;
-        } catch (err) {
-          console.warn("DOMActionOperations: synthetic click failed", err);
-        }
+    return false;
+  }
+
+  /**
+   * Fires a coordinate-based mouse event sequence via nsIDOMWindowUtils.
+   * Returns true if successful, false if the API is unavailable.
+   */
+  private performMouseClick(
+    x: number,
+    y: number,
+    button: "left" | "right" | "middle",
+    clickCount: number,
+  ): boolean {
+    const domWindowUtils = (
+      this.contentWindow as unknown as { windowUtils?: nsIDOMWindowUtils }
+    )?.windowUtils;
+    if (!domWindowUtils) return false;
+
+    const buttonMap = { left: 0, middle: 1, right: 2 };
+    const btn = buttonMap[button];
+
+    try {
+      // Move cursor to target
+      domWindowUtils.sendMouseEvent("mousemove", x, y, 0, 0, 0);
+
+      // mousedown → mouseup × clickCount
+      for (let i = 0; i < clickCount; i++) {
+        domWindowUtils.sendMouseEvent("mousedown", x, y, btn, i + 1, 0);
+        domWindowUtils.sendMouseEvent("mouseup", x, y, btn, i + 1, 0);
       }
-
-      if ((isButton || isLink) && !clickDispatched) {
-        try {
-          rawElement.dispatchEvent(
-            new Ev("submit", cloneOpts({ bubbles: true, cancelable: true })),
-          );
-        } catch (err) {
-          console.warn("DOMActionOperations: submit dispatch failed", err);
-        }
-      }
-
-      return stateChanged || clickDispatched;
+      return true;
     } catch (e) {
-      console.error("DOMActionOperations: Error clicking element:", e);
+      console.error("DOMActionOperations: sendMouseEvent failed:", e);
       return false;
     }
+  }
+
+  /**
+   * Playwright-style actionability check.
+   */
+  private checkActionability(el: HTMLElement): boolean {
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
+
+    const style = this.contentWindow?.getComputedStyle(el);
+    if (!style) return false;
+    if (style.getPropertyValue("display") === "none") return false;
+    if (style.getPropertyValue("visibility") === "hidden") return false;
+    if (style.getPropertyValue("opacity") === "0") return false;
+    if (style.getPropertyValue("pointer-events") === "none") return false;
+
+    return true;
+  }
+
+  /**
+   * Waits until the element's position/size stabilizes (CSS animation done).
+   */
+  private waitForStable(
+    el: HTMLElement,
+    timeout: number,
+  ): Promise<boolean> {
+    return new Promise((resolve) => {
+      let lastRect = el.getBoundingClientRect();
+      let stableFrames = 0;
+      const REQUIRED_STABLE_FRAMES = 3;
+      const POLL_INTERVAL = 50;
+
+      const timer = setInterval(() => {
+        const rect = el.getBoundingClientRect();
+        const dx = Math.abs(rect.x - lastRect.x);
+        const dy = Math.abs(rect.y - lastRect.y);
+        const dw = Math.abs(rect.width - lastRect.width);
+        const dh = Math.abs(rect.height - lastRect.height);
+
+        if (dx < 1 && dy < 1 && dw < 1 && dh < 1) {
+          stableFrames++;
+          if (stableFrames >= REQUIRED_STABLE_FRAMES) {
+            clearInterval(timer);
+            resolve(true);
+          }
+        } else {
+          stableFrames = 0;
+        }
+        lastRect = rect;
+      }, POLL_INTERVAL);
+
+      setTimeout(() => {
+        clearInterval(timer);
+        resolve(false);
+      }, timeout);
+    });
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   async hoverElement(selector: string): Promise<boolean> {
@@ -272,129 +341,11 @@ export class DOMActionOperations {
   }
 
   async doubleClickElement(selector: string): Promise<boolean> {
-    try {
-      const element = this.document?.querySelector(
-        selector,
-      ) as HTMLElement | null;
-      if (!element) return false;
-
-      const elementInfo = await this.deps.translationHelper.translate(
-        "doubleClickElement",
-        {},
-      );
-      const options = this.deps.highlightManager.getHighlightOptions("Click");
-
-      this.deps.highlightManager
-        .applyHighlight(element, options, elementInfo)
-        .catch(() => {});
-
-      this.deps.eventDispatcher.scrollIntoViewIfNeeded(element);
-      this.deps.eventDispatcher.focusElementSoft(element);
-
-      const rect = element.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-
-      this.deps.eventDispatcher.dispatchPointerClickSequence(
-        element,
-        centerX,
-        centerY,
-        0,
-      );
-      this.deps.eventDispatcher.dispatchPointerClickSequence(
-        element,
-        centerX,
-        centerY,
-        0,
-      );
-
-      const win = this.contentWindow;
-      const rawWin = unwrapWindow(win);
-      const rawElement = unwrapElement(
-        element as HTMLElement & Partial<{ wrappedJSObject: HTMLElement }>,
-      );
-      if (!rawWin) return false;
-
-      const MouseEv = rawWin.MouseEvent ?? globalThis.MouseEvent;
-
-      rawElement.dispatchEvent(
-        new MouseEv(
-          "dblclick",
-          this.deps.eventDispatcher.cloneEventInit({
-            bubbles: true,
-            cancelable: true,
-            clientX: centerX,
-            clientY: centerY,
-            detail: 2,
-          }),
-        ),
-      );
-
-      return true;
-    } catch (e) {
-      console.error("DOMActionOperations: Error double clicking element:", e);
-      return false;
-    }
+    return this.clickElement(selector, { clickCount: 2 });
   }
 
   async rightClickElement(selector: string): Promise<boolean> {
-    try {
-      const element = this.document?.querySelector(
-        selector,
-      ) as HTMLElement | null;
-      if (!element) return false;
-
-      const elementInfo = await this.deps.translationHelper.translate(
-        "rightClickElement",
-        {},
-      );
-      const options = this.deps.highlightManager.getHighlightOptions("Click");
-
-      this.deps.highlightManager
-        .applyHighlight(element, options, elementInfo)
-        .catch(() => {});
-
-      this.deps.eventDispatcher.scrollIntoViewIfNeeded(element);
-      this.deps.eventDispatcher.focusElementSoft(element);
-
-      const rect = element.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-
-      this.deps.eventDispatcher.dispatchPointerClickSequence(
-        element,
-        centerX,
-        centerY,
-        2,
-      );
-
-      const win = this.contentWindow;
-      const rawWin = unwrapWindow(win);
-      const rawElement = unwrapElement(
-        element as HTMLElement & Partial<{ wrappedJSObject: HTMLElement }>,
-      );
-      if (!rawWin) return false;
-
-      const MouseEv = rawWin.MouseEvent ?? globalThis.MouseEvent;
-
-      rawElement.dispatchEvent(
-        new MouseEv(
-          "contextmenu",
-          this.deps.eventDispatcher.cloneEventInit({
-            bubbles: true,
-            cancelable: true,
-            clientX: centerX,
-            clientY: centerY,
-            button: 2,
-          }),
-        ),
-      );
-
-      return true;
-    } catch (e) {
-      console.error("DOMActionOperations: Error right clicking element:", e);
-      return false;
-    }
+    return this.clickElement(selector, { button: "right" });
   }
 
   async focusElement(selector: string): Promise<boolean> {

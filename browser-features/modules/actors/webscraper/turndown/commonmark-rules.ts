@@ -27,7 +27,7 @@ rules.paragraph = {
 rules.lineBreak = {
   filter: "br",
 
-  replacement: function (content: string, node: ExtendedNode, options: TurndownOptions): string {
+  replacement: function (_content: string, _node: ExtendedNode, options: TurndownOptions): string {
     return options.br + "\n";
   },
 };
@@ -88,22 +88,23 @@ rules.listItem = {
     return (
       prefix +
       content +
-      (node.nextSibling && !/\n$/.test(content) ? "\n" : "")
+      (node.nextSibling && !content.endsWith("\n") ? "\n" : "")
     );
   },
 };
 
 rules.indentedCodeBlock = {
-  filter: function (node: ExtendedNode, options: TurndownOptions): boolean {
+  filter: function (node: ExtendedNode, options?: TurndownOptions): boolean {
+    if (!options) return false;
     return (
       options.codeBlockStyle === "indented" &&
       node.nodeName === "PRE" &&
-      node.firstChild &&
+      node.firstChild !== null &&
       node.firstChild.nodeName === "CODE"
     );
   },
 
-  replacement: function (content: string, node: ExtendedNode): string {
+  replacement: function (_content: string, node: ExtendedNode): string {
     return (
       "\n\n    " +
       (node.firstChild?.textContent || "").replace(/\n/g, "\n    ") +
@@ -113,16 +114,17 @@ rules.indentedCodeBlock = {
 };
 
 rules.fencedCodeBlock = {
-  filter: function (node: ExtendedNode, options: TurndownOptions): boolean {
+  filter: function (node: ExtendedNode, options?: TurndownOptions): boolean {
+    if (!options) return false;
     return (
       options.codeBlockStyle === "fenced" &&
       node.nodeName === "PRE" &&
-      node.firstChild &&
+      node.firstChild !== null &&
       node.firstChild.nodeName === "CODE"
     );
   },
 
-  replacement: function (content: string, node: ExtendedNode, options: TurndownOptions): string {
+  replacement: function (_content: string, node: ExtendedNode, options: TurndownOptions): string {
     const className = (node.firstChild as Element)?.getAttribute("class") || "";
     const language = (className.match(/language-(\S+)/) || [null, ""])[1];
     const code = (node.firstChild as Element)?.textContent || "";
@@ -156,13 +158,14 @@ rules.fencedCodeBlock = {
 rules.horizontalRule = {
   filter: "hr",
 
-  replacement: function (content: string, node: ExtendedNode, options: TurndownOptions): string {
+  replacement: function (_content: string, _node: ExtendedNode, options: TurndownOptions): string {
     return "\n\n" + options.hr + "\n\n";
   },
 };
 
 rules.inlineLink = {
-  filter: function (node: ExtendedNode, options: TurndownOptions): boolean {
+  filter: function (node: ExtendedNode, options?: TurndownOptions): boolean {
+    if (!options) return false;
     return (
       options.linkStyle === "inlined" &&
       node.nodeName === "A" &&
@@ -181,7 +184,8 @@ rules.inlineLink = {
 };
 
 rules.referenceLink = {
-  filter: function (node: ExtendedNode, options: TurndownOptions): boolean {
+  filter: function (node: ExtendedNode, options?: TurndownOptions): boolean {
+    if (!options) return false;
     return (
       options.linkStyle === "referenced" &&
       node.nodeName === "A" &&
@@ -213,10 +217,12 @@ rules.referenceLink = {
         replacement = "[" + content + "]";
         reference = "[" + content + "]: " + href + title;
         break;
-      default:
+      default: {
         const id = refs.length + 1;
         replacement = "[" + content + "][" + id + "]";
         reference = "[" + id + "]: " + href + title;
+        break;
+      }
     }
 
     refs.push(reference);
@@ -227,7 +233,7 @@ rules.referenceLink = {
 
   references: [] as string[],
 
-  append: function (options: TurndownOptions): string {
+  append: function (_options: TurndownOptions): string {
     const refs = (this as unknown as { references: string[] }).references || [];
     let references = "";
     if (refs.length > 0) {
@@ -241,7 +247,7 @@ rules.referenceLink = {
 rules.emphasis = {
   filter: ["em", "i"],
 
-  replacement: function (content: string, node: ExtendedNode, options: TurndownOptions): string {
+  replacement: function (content: string, _node: ExtendedNode, options: TurndownOptions): string {
     if (!content.trim()) {
       return "";
     }
@@ -252,7 +258,7 @@ rules.emphasis = {
 rules.strong = {
   filter: ["strong", "b"],
 
-  replacement: function (content: string, node: ExtendedNode, options: TurndownOptions): string {
+  replacement: function (content: string, _node: ExtendedNode, options: TurndownOptions): string {
     if (!content.trim()) {
       return "";
     }
@@ -290,7 +296,7 @@ rules.code = {
 rules.image = {
   filter: "img",
 
-  replacement: function (content: string, node: ExtendedNode): string {
+  replacement: function (_content: string, node: ExtendedNode): string {
     const elem = node as unknown as Element;
     const alt = cleanAttribute(elem.getAttribute("alt"));
     const src = elem.getAttribute("src") || "";
@@ -299,6 +305,160 @@ rules.image = {
     return src ? "![" + alt + "]" + "(" + src + titlePart + ")" : "";
   },
 };
+
+// =============================================================================
+// Table rules
+// =============================================================================
+
+rules.tableCell = {
+  filter: ["th", "td"],
+  replacement: function (content: string, node: ExtendedNode): string {
+    return tableCell(content, node);
+  },
+};
+
+rules.tableRow = {
+  filter: "tr",
+  replacement: function (content: string, node: ExtendedNode): string {
+    let borderCells = "";
+    const elem = node as unknown as Element;
+
+    if (isHeadingRow(elem)) {
+      const columns = elem.children;
+      for (let i = 0; i < columns.length; i++) {
+        const col = columns[i] as HTMLElement;
+        const inlineAlign = col.getAttribute("style")?.match(/text-align\s*:\s*(\w+)/i)?.[1];
+        const align = inlineAlign || col.getAttribute("align");
+        let border = "---";
+        if (align === "center") border = ":---:";
+        else if (align === "right") border = "---:";
+        else if (align === "left") border = ":---";
+        borderCells += tableCell(border, columns[i] as unknown as ExtendedNode);
+      }
+    }
+
+    return "\n" + content + (borderCells ? "\n" + borderCells : "");
+  },
+};
+
+rules.table = {
+  filter: "table",
+  replacement: function (content: string): string {
+    content = content.replace(/\n+/g, "\n");
+    return "\n\n" + content + "\n\n";
+  },
+};
+
+rules.tableSection = {
+  filter: ["thead", "tbody", "tfoot"],
+  replacement: function (content: string): string {
+    return content;
+  },
+};
+
+function tableCell(content: string, node: ExtendedNode): string {
+  const parent = node.parentNode as Element;
+  const index = Array.prototype.indexOf.call(
+    parent.children,
+    node as unknown as Element,
+  );
+  let prefix = " ";
+  if (index === 0) prefix = "| ";
+  const cleaned = content.replace(/\n/g, " ").trim();
+  return prefix + cleaned + " |";
+}
+
+function isHeadingRow(tr: Element): boolean {
+  const parent = tr.parentNode as Element;
+  if (parent.nodeName === "THEAD") return true;
+  if (parent.nodeName === "TABLE" || parent.nodeName === "TBODY") {
+    const rows = parent.querySelectorAll("tr");
+    if (rows[0] === tr) {
+      return Array.from(tr.children).every((c) => c.nodeName === "TH");
+    }
+  }
+  return false;
+}
+
+// =============================================================================
+// Strikethrough rule
+// =============================================================================
+
+rules.strikethrough = {
+  filter: ["del", "s", "strike"],
+  replacement: function (content: string): string {
+    if (!content.trim()) return "";
+    return "~~" + content + "~~";
+  },
+};
+
+// =============================================================================
+// Form element rules
+// =============================================================================
+
+rules.input = {
+  filter: function (node: ExtendedNode): boolean {
+    return (
+      node.nodeName === "INPUT" &&
+      !["hidden", "submit", "button", "reset", "image"].includes(
+        ((node as unknown as HTMLInputElement).type || "").toLowerCase(),
+      )
+    );
+  },
+  replacement: function (_content: string, node: ExtendedNode): string {
+    const el = node as unknown as HTMLInputElement;
+    const type = (el.type || "text").toLowerCase();
+    const name = el.name || el.id || "";
+    const value = el.value || "";
+    const placeholder = el.placeholder || "";
+
+    if (type === "checkbox" || type === "radio") {
+      return `[${el.checked ? "x" : " "}] `;
+    }
+
+    const attrs = [
+      `type="${type}"`,
+      name && `name="${name}"`,
+      value && `value="${value}"`,
+      placeholder && `placeholder="${placeholder}"`,
+      el.disabled ? "disabled" : "",
+      el.required ? "required" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    return `\`<input ${attrs}>\``;
+  },
+};
+
+rules.select = {
+  filter: "select",
+  replacement: function (_content: string, node: ExtendedNode): string {
+    const el = node as unknown as HTMLSelectElement;
+    const name = el.name || el.id || "";
+    const options = (Array.from(el.options) as HTMLOptionElement[]).map((opt) => {
+      const selected = opt.selected ? "*" : "";
+      return `${selected}${opt.textContent?.trim() || opt.value}`;
+    });
+    const optionsList = options.slice(0, 10).join(", ");
+    const more =
+      el.options.length > 10 ? ` (+${el.options.length - 10} more)` : "";
+    return `\`<select name="${name}" options=[${optionsList}${more}]>\``;
+  },
+};
+
+rules.textarea = {
+  filter: "textarea",
+  replacement: function (_content: string, node: ExtendedNode): string {
+    const el = node as unknown as HTMLTextAreaElement;
+    const name = el.name || el.id || "";
+    const value = (el.value || "").slice(0, 100);
+    const placeholder = el.placeholder || "";
+    return `\`<textarea name="${name}" placeholder="${placeholder}">${value}</textarea>\``;
+  },
+};
+
+// =============================================================================
 
 function cleanAttribute(attribute: string | null): string {
   return attribute ? attribute.replace(/(\n+\s*)+/g, "\n") : "";

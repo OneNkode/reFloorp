@@ -22,6 +22,7 @@ import wrapNode from "./node";
 import {
   formatFingerprintComment,
   formatSelectorMapEntry,
+  FingerprintTextCache,
   type ElementFingerprint,
 } from "./fingerprint";
 
@@ -65,14 +66,16 @@ export interface TurndownServiceOptions {
 }
 
 export class TurndownService {
-  private options: TurndownOptions;
+  options: TurndownOptions;
   rules: Rules;
   /** Collected fingerprints for selector map generation */
-  private collectedFingerprints: Array<{
+  collectedFingerprints: Array<{
     fingerprint: ElementFingerprint;
     tagName: string;
     textPreview: string;
   }> = [];
+  /** Pre-computed text cache for O(1) fingerprint text lookups */
+  textCache: FingerprintTextCache | undefined;
 
   constructor(options: TurndownServiceOptions = {}) {
     const defaults: TurndownOptions = {
@@ -94,9 +97,8 @@ export class TurndownService {
         return node.isBlock ? "\n\n" : "";
       },
       keepReplacement: function (content: string, node: ExtendedNode): string {
-        return node.isBlock
-          ? "\n\n" + (node as unknown as Element).outerHTML + "\n\n"
-          : (node as unknown as Element).outerHTML;
+        const html = (node as unknown as Element).outerHTML as unknown as string;
+        return node.isBlock ? "\n\n" + html + "\n\n" : html;
       },
       defaultReplacement: function (
         content: string,
@@ -133,9 +135,17 @@ export class TurndownService {
       return "";
     }
 
+    // Pre-compute text cache for O(1) fingerprint text lookups
+    if (this.options.enableFingerprints && typeof input !== "string") {
+      this.textCache = new FingerprintTextCache();
+      this.textCache.precompute(input);
+    } else {
+      this.textCache = undefined;
+    }
+
     const output = process.call(
       this,
-      RootNode(input, this.options) as unknown as ParentNode,
+      RootNode(input, this.options) as unknown as Node,
     );
     let result = postProcess.call(this, output);
 
@@ -228,14 +238,16 @@ export class TurndownService {
 /**
  * Reduces a DOM node down to its Markdown string equivalent
  */
-function process(parentNode: ParentNode): string {
+function process(this: TurndownService, parentNode: Node): string {
   const self = this;
   const childNodes = parentNode.childNodes
-    ? Array.from(parentNode.childNodes)
+    ? (Array.from(parentNode.childNodes) as Array<Node | null>).filter(
+        (n): n is Node => n !== null,
+      )
     : [];
 
-  return childNodes.reduce(function (output, node) {
-    const wrappedNode = wrapNode(node, self.options);
+  return childNodes.reduce(function (output: string, node: Node): string {
+    const wrappedNode = wrapNode(node, self.options, self.textCache);
 
     let replacement = "";
     if (wrappedNode.nodeType === 3) {
@@ -255,7 +267,7 @@ function process(parentNode: ParentNode): string {
 /**
  * Appends strings as each rule requires and trims the output
  */
-function postProcess(output: string): string {
+function postProcess(this: TurndownService, output: string): string {
   const self = this;
   self.rules.forEach(function (rule) {
     if (typeof rule.append === "function") {
@@ -269,10 +281,10 @@ function postProcess(output: string): string {
 /**
  * Converts an element node to its Markdown equivalent
  */
-function replacementForNode(node: ExtendedNode): string {
-  const self = this as TurndownService;
+function replacementForNode(this: TurndownService, node: ExtendedNode): string {
+  const self = this;
   const rule = this.rules.forNode(node);
-  let content = process.call(this, node as unknown as ParentNode);
+  let content = process.call(this, node as unknown as Node);
   const whitespace = node.flankingWhitespace;
   if (whitespace.leading || whitespace.trailing) {
     content = content.trim();

@@ -56,6 +56,28 @@ const GlobalHTTPTracker = {
   getActiveCount(bcid: number): number {
     return this.activeRequests.get(bcid)?.size || 0;
   },
+
+  getActiveURLs(bcid: number): string[] {
+    const requests = this.activeRequests.get(bcid);
+    if (!requests) return [];
+    const urls: string[] = [];
+    for (const req of requests) {
+      try {
+        // deno-lint-ignore no-explicit-any
+        const channel = req as any;
+        if (channel.URI?.spec) {
+          urls.push(channel.URI.spec);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return urls;
+  },
+
+  clearForContext(bcid: number): void {
+    this.activeRequests.delete(bcid);
+  },
 };
 
 GlobalHTTPTracker.init();

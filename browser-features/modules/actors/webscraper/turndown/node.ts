@@ -17,6 +17,7 @@ import {
 import {
   generateFingerprint,
   type ElementFingerprint,
+  type FingerprintTextCache,
 } from "./fingerprint";
 
 export interface ExtendedNode extends Node {
@@ -37,7 +38,11 @@ interface NodeTurndownOptions {
   enableFingerprints?: boolean;
 }
 
-export default function wrapNode(node: Node, options: NodeTurndownOptions): ExtendedNode {
+export default function wrapNode(
+  node: Node,
+  options: NodeTurndownOptions,
+  textCache?: FingerprintTextCache,
+): ExtendedNode {
   const extended = node as ExtendedNode;
   extended.isBlock = isBlock(node);
   const parentNode = node.parentNode as unknown as ExtendedNode | null;
@@ -48,7 +53,7 @@ export default function wrapNode(node: Node, options: NodeTurndownOptions): Exte
   // Generate fingerprint for block elements only (performance optimization)
   // Fingerprints are only used for block elements in the output
   if (options.enableFingerprints && node.nodeType === 1 && extended.isBlock) { // Node.ELEMENT_NODE
-    extended.fingerprint = generateFingerprint(node as Element);
+    extended.fingerprint = generateFingerprint(node as Element, {}, textCache);
   }
 
   return extended;

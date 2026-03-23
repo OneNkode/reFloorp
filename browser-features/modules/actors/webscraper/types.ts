@@ -34,6 +34,23 @@ export interface NRWebScraperMessageData {
   cookieString?: string;
   cookieName?: string;
   cookieValue?: string;
+  // getText options
+  includeSelectorMap?: boolean;
+  mode?: "full" | "scoped" | "visible";
+  viewportMargin?: number;
+  enableFingerprints?: boolean;
+  // Click options
+  button?: "left" | "right" | "middle";
+  clickCount?: number;
+  force?: boolean;
+  // Accessibility tree options
+  interestingOnly?: boolean;
+  root?: string;
+  // waitForNetworkIdle options
+  maxInflight?: number;
+  idleDuration?: number;
+  ignorePatterns?: string[];
+  state?: "attached" | "visible" | "hidden" | "detached";
 }
 
 export interface NormalizedHighlightOptions {
@@ -153,3 +170,120 @@ export type XraySelectElement = XrayElement<HTMLSelectElement>;
  * Union type for input-like elements
  */
 export type XrayInputLikeElement = XrayInputElement | XrayTextAreaElement;
+
+// =============================================================================
+// getText options
+// =============================================================================
+
+/**
+ * Options for getText() content extraction
+ */
+export interface GetTextOptions {
+  /** Conversion mode: "full" (entire body), "scoped" (single selector), "visible" (viewport only) */
+  mode?: "full" | "scoped" | "visible";
+  /** CSS selector for "scoped" mode */
+  selector?: string;
+  /** Extra margin (px) beyond the viewport for "visible" mode (default: 500) */
+  viewportMargin?: number;
+  /** Embed fingerprints in Markdown output (default: true) */
+  enableFingerprints?: boolean;
+  /** Append selector map at end of output (default: false) */
+  includeSelectorMap?: boolean;
+}
+
+// =============================================================================
+// Click options
+// =============================================================================
+
+/**
+ * Options for coordinate-based clickElement
+ */
+export interface ClickElementOptions {
+  /** Mouse button (default: "left") */
+  button?: "left" | "right" | "middle";
+  /** Number of clicks (default: 1, use 2 for double-click) */
+  clickCount?: number;
+  /** Skip actionability checks (default: false) */
+  force?: boolean;
+  /** Timeout in ms for retries (default: 5000) */
+  timeout?: number;
+}
+
+// =============================================================================
+// Accessibility Tree
+// =============================================================================
+
+/**
+ * A node in the accessibility tree
+ */
+export interface AXNode {
+  role: string;
+  name: string;
+  value?: string;
+  description?: string;
+  disabled?: boolean;
+  expanded?: boolean;
+  checked?: boolean | "mixed";
+  selected?: boolean;
+  level?: number;
+  fingerprint?: string;
+  children: AXNode[];
+}
+
+// =============================================================================
+// Article extraction result
+// =============================================================================
+
+/**
+ * Result from Readability-based article extraction
+ */
+export interface ArticleResult {
+  title: string;
+  byline: string;
+  markdown: string;
+  length: number;
+}
+
+// =============================================================================
+// Actor message type map (for type-safe sendQuery)
+// =============================================================================
+
+/**
+ * Maps actor message names to their request/response types.
+ * Used by typed wrappers to ensure compile-time safety for
+ * sendQuery calls.
+ */
+export interface WebScraperMessages {
+  "WebScraper:GetHTML": {
+    request: { selector?: string };
+    response: string | null;
+  };
+  "WebScraper:GetText": {
+    request: GetTextOptions;
+    response: string | null;
+  };
+  "WebScraper:GetAccessibilityTree": {
+    request: { interestingOnly?: boolean; root?: string };
+    response: AXNode | null;
+  };
+  "WebScraper:GetArticle": {
+    request: void;
+    response: ArticleResult | null;
+  };
+  "WebScraper:ClickElement": {
+    request: { selector: string } & ClickElementOptions;
+    response: boolean;
+  };
+  "WebScraper:ResolveFingerprint": {
+    request: { fingerprint: string };
+    response: string | null;
+  };
+  "WebScraper:WaitForReady": {
+    request: { timeout?: number };
+    response: boolean;
+  };
+  "WebScraper:WaitForElement": {
+    request: { selector: string; timeout?: number; state?: string };
+    response: boolean;
+  };
+}

@@ -190,20 +190,63 @@ export function registerCommonAutomationRoutes(
     return { status: 200, body: uri != null ? { uri } : { uri: null } };
   }));
 
-  // Get page HTML
+  // Get page HTML (optional scoped by selector query param)
   ns.get("/instances/:id/html", safeRoute(async (ctx: RouterContext) => {
     const service = getService();
-    const html = await service.getHTML(ctx.params.id);
+    const selector = ctx.searchParams.get("selector") || undefined;
+    const html = await service.getHTML(ctx.params.id, selector ? { selector } : undefined);
     return { status: 200, body: { html } };
   }));
 
-  // Get visible text content (as Markdown with element fingerprints)
+  // Get visible text content (as Markdown with element fingerprints) - legacy GET
   ns.get("/instances/:id/text", safeRoute(async (ctx: RouterContext) => {
     const includeSelectorMap =
       ctx.searchParams.get("includeSelectorMap") === "true";
     const service = getService();
     const text = await service.getText(ctx.params.id, includeSelectorMap);
     return { status: 200, body: text != null ? { text } : {} };
+  }));
+
+  // Get text content with full options (mode, selector, etc.)
+  ns.post("/instances/:id/text", safeRoute(async (ctx: RouterContext) => {
+    const service = getService();
+    const body = ctx.json() as Record<string, unknown> | null;
+    const rawMode = body?.mode as string | undefined;
+    const mode = (rawMode === "scoped" || rawMode === "visible") ? rawMode : "full";
+    const options = {
+      mode: mode as "full" | "scoped" | "visible",
+      selector: body?.selector as string | undefined,
+      viewportMargin: typeof body?.viewportMargin === "number" ? body.viewportMargin : undefined,
+      enableFingerprints: typeof body?.enableFingerprints === "boolean" ? body.enableFingerprints : undefined,
+      includeSelectorMap: typeof body?.includeSelectorMap === "boolean" ? body.includeSelectorMap : undefined,
+    };
+    const text = await service.getText(ctx.params.id, options);
+    return { status: 200, body: text != null ? { text } : {} };
+  }));
+
+  // Get accessibility tree
+  ns.get("/instances/:id/ax-tree", safeRoute(async (ctx: RouterContext) => {
+    const service = getService();
+    if (!service.getAccessibilityTree) {
+      return { status: 501, body: { error: "getAccessibilityTree not supported" } as Record<string, unknown> };
+    }
+    const interestingOnly = ctx.searchParams.get("interestingOnly") !== "false";
+    const root = ctx.searchParams.get("root") || undefined;
+    const tree = await service.getAccessibilityTree(ctx.params.id, {
+      interestingOnly,
+      root,
+    });
+    return { status: 200, body: (tree != null ? { tree } : {}) as Record<string, unknown> };
+  }));
+
+  // Get article (Readability extraction)
+  ns.get("/instances/:id/article", safeRoute(async (ctx: RouterContext) => {
+    const service = getService();
+    if (!service.getArticle) {
+      return { status: 501, body: { error: "getArticle not supported" } };
+    }
+    const article = await service.getArticle(ctx.params.id);
+    return { status: 200, body: article ?? { error: "Could not extract article" } };
   }));
 
   // Get element by selector or fingerprint (optional - only Tab exposes this)
@@ -358,13 +401,16 @@ export function registerCommonAutomationRoutes(
     }),
   );
 
-  // Click element (selector or fingerprint)
+  // Click element (selector or fingerprint, with optional click options)
   ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
     "/instances/:id/click",
     safeRoute(async (ctx: RouterContext) => {
       const json = ctx.json() as {
         selector?: string;
         fingerprint?: string;
+        button?: "left" | "right" | "middle";
+        clickCount?: number;
+        force?: boolean;
       } | null;
       const service = getService();
       const resolved = await resolveSelectorOrFingerprint(
@@ -946,12 +992,16 @@ export function registerCommonAutomationRoutes(
     }),
   );
 
-  // Wait for network idle
+  // Wait for network idle (supports SPA ignore patterns)
   ns.post<{ timeout?: number }, { ok?: boolean; error?: string }>(
     "/instances/:id/waitForNetworkIdle",
     safeRoute(async (ctx: RouterContext) => {
-      const json = ctx.json() as { timeout?: number } | null;
-      const timeout = clampTimeout(json?.timeout, 5000);
+      const json = ctx.json() as {
+        timeout?: number;
+        maxInflight?: number;
+        idleDuration?: number;
+        ignorePatterns?: string[];
+      } | null;
       const service = getService();
       if (!service.waitForNetworkIdle) {
         return {
@@ -959,7 +1009,12 @@ export function registerCommonAutomationRoutes(
           body: { error: "waitForNetworkIdle not supported" },
         };
       }
-      const ok = await service.waitForNetworkIdle(ctx.params.id, timeout);
+      const ok = await service.waitForNetworkIdle(ctx.params.id, {
+        timeout: clampTimeout(json?.timeout, 5000),
+        maxInflight: typeof json?.maxInflight === "number" ? json.maxInflight : undefined,
+        idleDuration: typeof json?.idleDuration === "number" ? json.idleDuration : undefined,
+        ignorePatterns: Array.isArray(json?.ignorePatterns) ? json.ignorePatterns : undefined,
+      });
       return { status: 200, body: { ok: ok ?? false } };
     }),
   );

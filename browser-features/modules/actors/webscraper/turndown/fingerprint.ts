@@ -106,7 +106,7 @@ function hashString(str: string, seed: number = 5381): number {
  */
 function getFilteredTextContent(element: Element): string {
   let text = "";
-  const walker = element.ownerDocument.createTreeWalker(
+  const walker = element.ownerDocument!.createTreeWalker(
     element,
     NodeFilter.SHOW_TEXT,
     {
@@ -174,6 +174,67 @@ function isExcludedAttribute(attrName: string, excluded: string[]): boolean {
 }
 
 /**
+ * Pre-computes filtered text content for all elements in a single
+ * bottom-up pass.  Using this cache turns the per-element text
+ * extraction inside `generateFingerprint()` from O(m) to O(1),
+ * reducing the overall getText() cost from O(n×m) to O(n).
+ */
+export class FingerprintTextCache {
+  private cache = new WeakMap<Element, string>();
+  private computed = false;
+
+  /**
+   * Bottom-up single-pass computation of filtered text for every element
+   * under `root`.  The root itself is included.
+   *
+   * Must be called on a clone that already had script/style/noscript removed,
+   * or the exclusion filter handles it automatically.
+   */
+  precompute(root: Element): void {
+    const elements: Element[] = [];
+    const walker = root.ownerDocument!.createTreeWalker(
+      root,
+      NodeFilter.SHOW_ELEMENT,
+    );
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      elements.push(node as Element);
+    }
+
+    // Leaf → root order so children are cached before parents
+    for (let i = elements.length - 1; i >= 0; i--) {
+      const el = elements[i];
+      if (isExcludedElement(el)) {
+        this.cache.set(el, "");
+        continue;
+      }
+      let text = "";
+      for (const child of el.childNodes) {
+        if (!child) continue;
+        if (child.nodeType === 3 /* TEXT_NODE */) {
+          text += child.textContent || "";
+        } else if (child.nodeType === 1 /* ELEMENT_NODE */) {
+          text += this.cache.get(child as Element) || "";
+        }
+      }
+      this.cache.set(el, text);
+    }
+    this.computed = true;
+  }
+
+  /**
+   * Retrieve pre-computed text for an element.
+   * Falls back to the full TreeWalker approach if precompute() was not called.
+   */
+  getTextContent(el: Element, maxLength: number): string {
+    if (this.computed) {
+      return (this.cache.get(el) || "").replace(/\s+/g, "").slice(0, maxLength);
+    }
+    return getFilteredTextContent(el).replace(/\s+/g, "").slice(0, maxLength);
+  }
+}
+
+/**
  * Generate a stable fingerprint for an element
  *
  * The fingerprint is based on:
@@ -185,11 +246,13 @@ function isExcludedAttribute(attrName: string, excluded: string[]): boolean {
  *
  * @param element The DOM element to fingerprint
  * @param options Configuration options
+ * @param textCache Optional pre-computed text cache for O(1) text lookups
  * @returns ElementFingerprint with short, full hash and path
  */
 export function generateFingerprint(
   element: Element,
   options: Partial<FingerprintOptions> = {},
+  textCache?: FingerprintTextCache,
 ): ElementFingerprint {
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
@@ -200,12 +263,12 @@ export function generateFingerprint(
   components.push(element.nodeName.toLowerCase());
 
   // 2. Text content (first N characters, normalized)
-  // Use getFilteredTextContent to exclude script/style/noscript text,
-  // matching the cloned DOM (where those elements are physically removed).
-  // Then strip ALL whitespace for consistent hashes between clone and live DOM.
-  const textContent = getFilteredTextContent(element)
-    .replace(/\s+/g, "")
-    .slice(0, opts.textContentLength);
+  // Use textCache (O(1)) if available, otherwise fall back to TreeWalker.
+  const textContent = textCache
+    ? textCache.getTextContent(element, opts.textContentLength)
+    : getFilteredTextContent(element)
+        .replace(/\s+/g, "")
+        .slice(0, opts.textContentLength);
   if (textContent) {
     components.push(textContent);
   }
@@ -408,7 +471,7 @@ export function findElementByFingerprint(
   const startTime = Date.now();
 
   // Use TreeWalker for efficient traversal, skipping highlight overlays
-  const walker = root.ownerDocument.createTreeWalker(
+  const walker = root.ownerDocument!.createTreeWalker(
     root,
     NodeFilter.SHOW_ELEMENT,
     {
@@ -484,7 +547,7 @@ export function findElementsByFingerprint(
   const startTime = Date.now();
 
   // Use TreeWalker with highlight overlay filtering
-  const walker = root.ownerDocument.createTreeWalker(
+  const walker = root.ownerDocument!.createTreeWalker(
     root,
     NodeFilter.SHOW_ELEMENT,
     {

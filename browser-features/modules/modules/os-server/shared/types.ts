@@ -89,9 +89,30 @@ export interface BrowserAutomationService {
   getURI(instanceId: string): Promise<string | null>;
 
   // Content retrieval
-  getHTML(instanceId: string): Promise<string | null>;
-  getText(instanceId: string, includeSelectorMap?: boolean): Promise<string | null>;
+  getHTML(instanceId: string, options?: { selector?: string }): Promise<string | null>;
+  getText(
+    instanceId: string,
+    options?:
+      | boolean
+      | {
+          mode?: "full" | "scoped" | "visible";
+          selector?: string;
+          viewportMargin?: number;
+          enableFingerprints?: boolean;
+          includeSelectorMap?: boolean;
+        },
+  ): Promise<string | null>;
   getPageTitle(instanceId: string): Promise<string | null>;
+  getAccessibilityTree?(
+    instanceId: string,
+    options?: { interestingOnly?: boolean; root?: string },
+  ): Promise<unknown>;
+  getArticle?(instanceId: string): Promise<{
+    title: string;
+    byline: string;
+    markdown: string;
+    length: number;
+  } | null>;
 
   // Element queries
   getElement?(instanceId: string, selector: string): Promise<string | null>;
@@ -146,7 +167,17 @@ export interface BrowserAutomationService {
     state?: WaitForElementState,
   ): Promise<boolean | null>;
   waitForReady(instanceId: string, timeout?: number): Promise<boolean | null>;
-  waitForNetworkIdle?(instanceId: string, timeout?: number): Promise<boolean | null>;
+  waitForNetworkIdle?(
+    instanceId: string,
+    options?:
+      | number
+      | {
+          timeout?: number;
+          maxInflight?: number;
+          idleDuration?: number;
+          ignorePatterns?: string[];
+        },
+  ): Promise<boolean | null>;
 
   // Screenshots
   takeScreenshot(instanceId: string): Promise<string | null>;
