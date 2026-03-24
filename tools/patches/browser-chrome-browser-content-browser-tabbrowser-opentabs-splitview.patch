@@ -1,0 +1,44 @@
+diff --git a/browser/chrome/browser/content/browser/tabbrowser/opentabs-splitview.mjs b/browser/chrome/browser/content/browser/tabbrowser/opentabs-splitview.mjs
+--- ./browser/chrome/browser/content/browser/tabbrowser/opentabs-splitview.mjs
++++ ./browser/chrome/browser/content/browser/tabbrowser/opentabs-splitview.mjs
+@@ -96,10 +96,37 @@ class OpenTabsInSplitView extends MozLitElement {
+     return gBrowser.selectedTab.splitview;
+   }
+
+-  onTabListRowClick(event) {
++  /**
++   * Find the tab that hosts this about:opentabs page.
++   * Uses the embedder browsing context to locate the <browser> element,
++   * then finds its associated tab via gBrowser.getTabForBrowser().
++   * Falls back to gBrowser.selectedTab if the host tab cannot be determined.
++   */
++  get hostTab() {
++    try {
++      const { gBrowser } = this.getWindow();
++      // Navigate from the content window to the embedding <browser> element
++      const hostBrowser = window.browsingContext.embedderElement;
++      if (hostBrowser) {
++        const tab = gBrowser.getTabForBrowser(hostBrowser);
++        if (tab) {
++          return tab;
++        }
++      }
++    } catch (e) {
++      console.warn("[OpenTabsInSplitView] Could not determine host tab:", e);
++    }
++    // Fallback: use selectedTab (original upstream behavior)
+     const { gBrowser } = this.getWindow();
++    return gBrowser.selectedTab;
++  }
++
++  onTabListRowClick(event) {
+     const tab = event.originalTarget.tabElement;
+     if (this.currentSplitView) {
+-      this.currentSplitView.replaceTab(gBrowser.selectedTab, tab);
++      // Replace the tab hosting this about:opentabs page, not gBrowser.selectedTab.
++      // In N-pane split view, the selected tab may not be the opentabs pane,
++      // so using selectedTab would replace the wrong pane.
++      this.currentSplitView.replaceTab(this.hostTab, tab);
+     }
+   }
+
