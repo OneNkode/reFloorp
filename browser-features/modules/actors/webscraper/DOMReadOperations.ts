@@ -145,7 +145,11 @@ export class DOMReadOperations {
         "text/html",
       );
       const tempContainer = articleDoc.body.firstElementChild ?? articleDoc.body;
-      const markdown = this.plainConverter.turndown(tempContainer);
+      const rawMarkdown = this.plainConverter.turndown(tempContainer);
+      // Strip invisible Unicode characters (zero-width spaces, soft hyphens, BOM)
+      const markdown = rawMarkdown
+        .replace(/[\u200B\u200C\u200D\uFEFF\u00AD]/g, "")
+        .replace(/ {2,}/g, " ");
 
       return {
         title: article.title || "",
@@ -961,7 +965,14 @@ export class DOMReadOperations {
           const iframeDoc = iframe.contentDocument;
           if (iframeDoc?.body) {
             const iframeBody = iframeDoc.body as HTMLElement;
-            let iframeText = iframeBody.textContent || "";
+            // Clone and strip script/style/noscript to avoid raw JS in output
+            const clone = iframeBody.cloneNode(true) as HTMLElement;
+            for (const el of Array.from(
+              clone.querySelectorAll("script, style, noscript"),
+            )) {
+              el.remove();
+            }
+            let iframeText = clone.textContent || "";
 
             // Also extract from Shadow DOM within iframe
             const shadowText = this.getTextFromShadowDOM(iframeBody);
