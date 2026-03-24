@@ -326,4 +326,13 @@ export const actions: GestureActionRegistration[] = [
     name: "gecko-workspace-previous",
     fn: (win) => win.workspacesFuncs.changeWorkspaceToPrevious(),
   },
+  {
+    name: "floorp-toggle-zen-mode",
+    fn: (_win) => {
+      Services.prefs.setBoolPref(
+        "floorp.zenmode.enabled",
+        !Services.prefs.getBoolPref("floorp.zenmode.enabled", false),
+      );
+    },
+  },
 ];
