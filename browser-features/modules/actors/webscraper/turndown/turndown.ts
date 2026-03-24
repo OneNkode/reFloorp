@@ -152,6 +152,16 @@ export class TurndownService {
     const output = process.call(this, rootNode as unknown as Node);
     let result = postProcess.call(this, output);
 
+    // Remove isolated fingerprint lines — lines that contain only fingerprint
+    // comment(s) with no other text. These occur when a parent block element
+    // has child text (passing the node.ts check) but its own Markdown output
+    // is empty because children render in their own blocks.
+    if (this.options.enableFingerprints) {
+      result = result.replace(/^[ \t]*(?:<!--fp:[a-z0-9]+-->[ \t]*)+$/gm, "");
+      // Collapse 3+ consecutive blank lines to 2
+      result = result.replace(/\n{3,}/g, "\n\n");
+    }
+
     // Append selector map if enabled and fingerprints were collected
     if (
       this.options.fingerprintSelectorMap &&
@@ -301,11 +311,8 @@ function replacementForNode(this: TurndownService, node: ExtendedNode): string {
 
     // Handle list markers specially - insert fingerprint after the marker
     // to avoid breaking Markdown list syntax (e.g., "- item" -> "- <!--fp:...-->item")
-    // Matches: optional leading whitespace, then "- ", "* ", "+ ", or "1. ", "2. ", etc.
     const listMarkerMatch = replacement.match(/^(\s*)([-*+]|\d+\.)(\s+)/);
     if (listMarkerMatch) {
-      // Insert fingerprint after the list marker and its space
-      // e.g., "- item" -> "- <!--fp:...-->item"
       replacement =
         listMarkerMatch[1] +
         listMarkerMatch[2] +
@@ -313,8 +320,17 @@ function replacementForNode(this: TurndownService, node: ExtendedNode): string {
         fpComment +
         replacement.slice(listMarkerMatch[0].length);
     } else {
-      // For other block elements, prepend fingerprint
-      replacement = fpComment + replacement;
+      // Insert fingerprint at the first non-whitespace position so it stays
+      // on the same line as content instead of becoming an isolated line.
+      const firstNonWS = replacement.search(/\S/);
+      if (firstNonWS > 0) {
+        replacement =
+          replacement.slice(0, firstNonWS) +
+          fpComment +
+          replacement.slice(firstNonWS);
+      } else {
+        replacement = fpComment + replacement;
+      }
     }
 
     // Collect fingerprint for selector map
