@@ -30,7 +30,7 @@ export interface TabManagerAPI extends BrowserAutomationService {
   // Instance management (tab-specific)
   createInstance(
     url: string,
-    options?: { inBackground?: boolean },
+    options?: { inBackground?: boolean; waitForLoad?: boolean },
   ): Promise<string>;
   attachToTab(browserId: string): Promise<string | null>;
   listTabs(): Promise<TabInfo[]>;
