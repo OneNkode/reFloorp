@@ -355,6 +355,26 @@
   fill: currentColor;
 }
 
+/* ===== N-pane split view button icon fallback =====
+ * Upstream CSS (urlbar-searchbar.css) only defines icons for
+ * data-active-index "0" and "1" (2-pane split). When Floorp's
+ * N-pane split view selects a tab at index 2 or 3, no icon rule
+ * matches and the button appears blank. Provide a fallback using
+ * the existing split view SVG icons.
+ */
+#split-view-button[data-active-index="2"] > #split-view-button-icon {
+  list-style-image: url("chrome://browser/skin/split-view-left-16.svg");
+}
+#split-view-button[data-active-index="3"] > #split-view-button-icon {
+  list-style-image: url("chrome://browser/skin/split-view-right-16.svg");
+}
+#split-view-button:dir(rtl)[data-active-index="2"] > #split-view-button-icon {
+  list-style-image: url("chrome://browser/skin/split-view-right-16.svg");
+}
+#split-view-button:dir(rtl)[data-active-index="3"] > #split-view-button-icon {
+  list-style-image: url("chrome://browser/skin/split-view-left-16.svg");
+}
+
 /* ===== Active pane indicator for N panes ===== */
 
 #split-view-button[data-pane-count="3"]::after,
