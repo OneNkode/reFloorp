@@ -51,12 +51,19 @@ const args = parseArgs(Deno.args, {
 });
 
 const command = args._[0] as string | undefined;
-const context = args.context as "chrome" | "content";
 
 if (!command || args.help) {
   console.log(HELP);
   Deno.exit(0);
 }
+
+// Validate --context
+const VALID_CONTEXTS = ["chrome", "content"] as const;
+if (!VALID_CONTEXTS.includes(args.context as typeof VALID_CONTEXTS[number])) {
+  console.error(`Invalid --context "${args.context}". Allowed: chrome, content`);
+  Deno.exit(1);
+}
+const context = args.context as "chrome" | "content";
 
 async function main() {
   switch (command) {
@@ -224,9 +231,20 @@ async function cmdStop() {
       await runSilent("taskkill", ["/PID", p, "/F"]);
     }
     if (browserPids.length === 0 && pid) {
-      // Fallback: kill floorp child processes of the saved PID tree
-      // (CommandLine might not be available for all processes)
-      await runSilent("taskkill", ["/IM", "floorp.exe", "/F"]);
+      // Fallback: find floorp by parent PID (never kill by image name alone)
+      const findChild = new Deno.Command("powershell", {
+        args: [
+          "-NoProfile", "-Command",
+          `Get-WmiObject Win32_Process | Where-Object { $_.Name -eq 'floorp.exe' -and $_.ParentProcessId -eq ${pid} } | ForEach-Object { $_.ProcessId }`,
+        ],
+        stdout: "piped",
+        stderr: "null",
+      });
+      const childOut = await findChild.output();
+      const childPids = new TextDecoder().decode(childOut.stdout).trim().split(/\r?\n/).filter(Boolean);
+      for (const p of childPids) {
+        await runSilent("taskkill", ["/PID", p, "/F"]);
+      }
     }
 
     // 4. Wait for cleanup
@@ -392,7 +410,20 @@ async function cmdScreenshot() {
 
   await withBrowser(async (client) => {
     await client.setContext(context);
-    const data = await client.takeScreenshot({ full: true });
+
+    let data: Uint8Array;
+    if (args.selector) {
+      // Find element by selector, then screenshot it
+      const elements = await client.findElements(String(args.selector));
+      if (elements.length === 0) {
+        console.error(`Element not found: ${args.selector}`);
+        Deno.exit(1);
+      }
+      data = await client.takeScreenshot({ element: elements[0] });
+    } else {
+      data = await client.takeScreenshot({ full: true });
+    }
+
     Deno.writeFileSync(outputPath, data);
     console.log(`Screenshot saved to ${outputPath} (${data.length} bytes)`);
   });

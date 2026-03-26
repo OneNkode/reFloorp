@@ -103,8 +103,13 @@ export class MarionetteClient {
   ): Promise<any> {
     const id = this.#msgId++;
     const msg = JSON.stringify([0, id, command, params]);
-    const packet = `${msg.length}:${msg}`;
-    await this.#conn.write(this.#encoder.encode(packet));
+    // Marionette uses byte-length prefix, not character-length
+    const msgBytes = this.#encoder.encode(msg);
+    const prefixBytes = this.#encoder.encode(`${msgBytes.length}:`);
+    const packet = new Uint8Array(prefixBytes.length + msgBytes.length);
+    packet.set(prefixBytes, 0);
+    packet.set(msgBytes, prefixBytes.length);
+    await this.#conn.write(packet);
 
     const resp = await this.#readPacketWithTimeout(timeoutMs);
     // Response: [1, msgId, error, result]
@@ -259,7 +264,7 @@ function readPort(): number {
   } catch {
     throw new Error(
       `Marionette port not found at ${MARIONETTE_STATE_FILE}\n` +
-        `Is the browser running? Start it with: deno task feles-build dev`,
+        `Is the browser running? Start it with: deno task dev-tool start`,
     );
   }
 }

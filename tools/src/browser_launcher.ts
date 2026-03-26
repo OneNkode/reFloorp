@@ -4,7 +4,6 @@ import * as path from "@std/path";
 import { BIN_PATH_EXE, PATHS, PROJECT_ROOT } from "./defines.ts";
 import { ProcessUtils } from "./utils.ts";
 
-export const MARIONETTE_PORT = 2828;
 export const MARIONETTE_STATE_FILE = path.join(PROJECT_ROOT, "_dist", "marionette-port.txt");
 
 /**
