@@ -823,46 +823,22 @@ jobs:
             fi
           fi
 
-          # Provide firefox/ copy for packaging scripts that expect it
-          mkdir -p "$WORKDIR/firefox"
-          cp -a "$WORKDIR/floorp/." "$WORKDIR/firefox/" || true
-
-          # Ensure both the original tree and the firefox/ copy expose
-          # firefox/firefox-bin aliases before creating the tarball so
-          # /usr/lib/floorp/firefox exists in the final .deb.
-          create_firefox_aliases() {
-            local target_dir="$1"
-            if [ -f "$target_dir/floorp" ]; then
-              ln -sf floorp "$target_dir/firefox"
-            fi
-            if [ -f "$target_dir/floorp-bin" ]; then
-              ln -sf floorp-bin "$target_dir/firefox-bin"
-            fi
-          }
-
-          create_firefox_aliases "$WORKDIR/floorp"
-          create_firefox_aliases "$WORKDIR/firefox"
-
-          # Ensure packaging scripts that expect a "firefox" binary find one.
-          # Create a 'firefox' symlink pointing to the actual 'floorp' binary
-          # inside any usr/lib/floorp directories found under the workdir so
-          # the resulting .deb contains /usr/lib/floorp/firefox -> floorp and
-          # resolves /usr/bin/floorp -> ../lib/floorp/firefox
-          find "$WORKDIR" -type d -path '*/usr/lib/floorp' -print0 |
-          while IFS= read -r -d '' BIN_DIR; do
-            if [ -f "$BIN_DIR/floorp" ]; then
-              ln -sf floorp "$BIN_DIR/firefox" || true
-            fi
-          done
-
-          # Remove duplicate metadata that can confuse mach
-          rm -f "$WORKDIR/firefox/application.ini" "$WORKDIR/firefox/platform.ini" || true
+          # Expose firefox/firefox-bin aliases so packaging scripts that
+          # expect a "firefox" binary find one inside the floorp/ tree.
+          if [ -f "$WORKDIR/floorp/floorp" ]; then
+            ln -sf floorp "$WORKDIR/floorp/firefox"
+          fi
+          if [ -f "$WORKDIR/floorp/floorp-bin" ]; then
+            ln -sf floorp-bin "$WORKDIR/floorp/firefox-bin"
+          fi
 
           # Mark packaged app for mach's checks
-          touch "$WORKDIR/floorp/is-packaged-app" "$WORKDIR/firefox/is-packaged-app" || true
+          touch "$WORKDIR/floorp/is-packaged-app" || true
 
+          # mach repackage deb expects a tarball with a single top-level
+          # directory, so only include floorp/.
           ADJUSTED_ARCHIVE="$WORKDIR/adjusted-installer.tar.xz"
-          (cd "$WORKDIR" && tar -cJf "$ADJUSTED_ARCHIVE" floorp firefox)
+          (cd "$WORKDIR" && tar -cJf "$ADJUSTED_ARCHIVE" floorp)
 
           echo "Adjusted archive created: $ADJUSTED_ARCHIVE"
           tar -tJf "$ADJUSTED_ARCHIVE" | sed -n '1,200p' || true
