@@ -189,87 +189,95 @@ export function patchTabpanels(
     );
   }
 
-  // --- Patch isSplitViewActive setter ---
-  const origActiveDesc = Object.getOwnPropertyDescriptor(
-    proto,
-    "isSplitViewActive",
-  );
+  // --- Patch setSplitViewActive method ---
+  // Firefox uses setSplitViewActive(updatedValue) method on MozTabpanels
+  // (not an isSplitViewActive property setter) to toggle split view state.
+  const origSetSplitViewActive = proto.setSplitViewActive as
+    | ((updatedValue: boolean) => void)
+    | undefined;
 
-  if (origActiveDesc?.set) {
+  if (typeof origSetSplitViewActive === "function") {
     patchedIsSplitViewActive = true;
 
-    Object.defineProperty(tabpanels, "isSplitViewActive", {
-      set(isActive: XULElement | null) {
-        const isActiveAsBool = !!isActive;
-        logger.debug(
-          `[patch:isSplitViewActive.set] isActive=${isActiveAsBool}`,
+    tabpanels.setSplitViewActive = function (
+      this: HTMLElement,
+      updatedValue: boolean,
+    ) {
+      // Reproduce the native logic: isActive is true only when the
+      // selected tab actually belongs to a split view AND the caller
+      // requested activation.
+      const gBrowserRef = getGBrowser();
+      const selectedSplitview = (
+        gBrowserRef?.selectedTab as { splitview?: unknown } | undefined
+      )?.splitview;
+      const isActive = !!selectedSplitview && !!updatedValue;
+      logger.debug(
+        `[patch:setSplitViewActive] updatedValue=${updatedValue} selectedHasSplitview=${!!selectedSplitview} → isActive=${isActive}`,
+      );
+
+      try {
+        origSetSplitViewActive.call(this, updatedValue);
+      } catch (e) {
+        logger.error(
+          `[patch:setSplitViewActive] original threw: ${e}`,
         );
-        try {
-          origActiveDesc.set!.call(this, isActive);
-        } catch (e) {
-          logger.error(
-            `[patch:isSplitViewActive.set] original setter threw: ${e}`,
-          );
+      }
+
+      const tabsToolbar = document?.getElementById("TabsToolbar");
+
+      if (isActive) {
+        this.setAttribute("data-floorp-split", "true");
+        // Enable multibar attribute so Lepton theme doesn't
+        // apply negative margins that hide split-view tabs.
+        // Record whether multibar was already set (by multirow tabs)
+        // so we don't remove it on deactivation.
+        if (tabsToolbar) {
+          if (!tabsToolbar.hasAttribute("multibar")) {
+            tabsToolbar.setAttribute("multibar", "true");
+            state.multibarSetBySplitView = true;
+          }
+          tabsToolbar.setAttribute("splitview-multibar", "true");
         }
-
-        const tabsToolbar = document?.getElementById("TabsToolbar");
-
-        if (isActiveAsBool) {
-          this.setAttribute("data-floorp-split", "true");
-          // Enable multibar attribute so Lepton theme doesn't
-          // apply negative margins that hide split-view tabs.
-          // Record whether multibar was already set (by multirow tabs)
-          // so we don't remove it on deactivation.
-          if (tabsToolbar) {
-            if (!tabsToolbar.hasAttribute("multibar")) {
-              tabsToolbar.setAttribute("multibar", "true");
-              state.multibarSetBySplitView = true;
-            }
-            tabsToolbar.setAttribute("splitview-multibar", "true");
-          }
-        } else {
-          this.removeAttribute("data-floorp-split");
-          this.removeAttribute("split-view-layout");
-          this.removeAttribute("data-floorp-dragging");
-          clearSplitHandles();
-          clearGridStyles(this);
-          // When leaving split view, Gecko can keep `.split-view-panel`
-          // / `.deck-selected` on old panes until the next native refresh.
-          // Those stale classes can mask the newly selected normal tab panel.
-          for (const child of (this as HTMLElement).children) {
-            resetSplitPanelPresentationState(child);
-          }
-          // Clean up active pane indicator
-          const staleActivePanes = this.querySelectorAll(
-            "[data-floorp-active-pane]",
-          );
-          for (const el of staleActivePanes) {
-            el.removeAttribute("data-floorp-active-pane");
-          }
-          // Reset panel cache so next activation re-applies layout
-          state.lastPanelIds = "";
-          // Only remove splitview-multibar / multibar when no split
-          // panels remain. The tab group can still exist in the tab bar
-          // even after isSplitViewActive becomes false.
-          const panels = (this as unknown as { splitViewPanels?: string[] })
-            .splitViewPanels;
-          const hasPanels = panels && panels.length >= 2;
-          if (!hasPanels && tabsToolbar) {
-            tabsToolbar.removeAttribute("splitview-multibar");
-            if (state.multibarSetBySplitView) {
-              tabsToolbar.removeAttribute("multibar");
-              state.multibarSetBySplitView = false;
-            }
+      } else {
+        this.removeAttribute("data-floorp-split");
+        this.removeAttribute("split-view-layout");
+        this.removeAttribute("data-floorp-dragging");
+        clearSplitHandles();
+        clearGridStyles(this);
+        // When leaving split view, Gecko can keep `.split-view-panel`
+        // / `.deck-selected` on old panes until the next native refresh.
+        // Those stale classes can mask the newly selected normal tab panel.
+        for (const child of (this as HTMLElement).children) {
+          resetSplitPanelPresentationState(child);
+        }
+        // Clean up active pane indicator
+        const staleActivePanes = this.querySelectorAll(
+          "[data-floorp-active-pane]",
+        );
+        for (const el of staleActivePanes) {
+          el.removeAttribute("data-floorp-active-pane");
+        }
+        // Reset panel cache so next activation re-applies layout
+        state.lastPanelIds = "";
+        // Only remove splitview-multibar / multibar when no split
+        // panels remain. The tab group can still exist in the tab bar
+        // even after setSplitViewActive is called with false.
+        const panels = (this as unknown as { splitViewPanels?: string[] })
+          .splitViewPanels;
+        const hasPanels = panels && panels.length >= 2;
+        if (!hasPanels && tabsToolbar) {
+          tabsToolbar.removeAttribute("splitview-multibar");
+          if (state.multibarSetBySplitView) {
+            tabsToolbar.removeAttribute("multibar");
+            state.multibarSetBySplitView = false;
           }
         }
-      },
-      get: origActiveDesc.get,
-      configurable: true,
-    });
-    logger.debug("[patch] isSplitViewActive setter patched");
+      }
+    };
+    logger.debug("[patch] setSplitViewActive method patched");
   } else {
     logger.warn(
-      "[patch] isSplitViewActive descriptor not found on prototype",
+      "[patch] setSplitViewActive method not found on prototype",
     );
   }
 
@@ -401,9 +409,10 @@ export function patchTabpanels(
         ).splitViewPanels;
       }
       if (patchedIsSplitViewActive) {
+        // Restore the original prototype method by removing the instance override
         delete (
           tabpanels as unknown as Record<string, unknown>
-        ).isSplitViewActive;
+        ).setSplitViewActive;
       }
       if (origShowSplitViewPanels) {
         gBrowser.showSplitViewPanels = origShowSplitViewPanels;
