@@ -49,9 +49,9 @@ export async function injectXhtmlFromTs(
             break;
           }
         }
-      } catch (e) {
+      } catch (e: unknown) {
         logger.warn(
-          `Could not read dist directory ${distDir} for macOS .app bundle search: ${e.message}`,
+          `Could not read dist directory ${distDir} for macOS .app bundle search: ${e instanceof Error ? e.message : e}`,
         );
       }
       if (!appBundleFound) {

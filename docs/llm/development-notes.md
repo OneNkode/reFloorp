@@ -471,21 +471,46 @@ deno task dev --measure-startup
 
 ## デバッグとトラブルシューティング
 
-### 1. ブラウザコンソール
+### 1. dev-tool（CLI デバッグツール）
+
+`tools/dev-tool.ts` は、ブラウザの起動・停止・デバッグを CLI から行うためのツールです。Marionette プロトコル経由で chrome コンテキスト（XUL DOM）にアクセスできます。
+
+```bash
+# プロセス管理
+deno task dev-tool start       # ブラウザをバックグラウンドで起動
+deno task dev-tool stop        # 全プロセスを停止（通常版 Floorp は kill しない）
+deno task dev-tool restart     # 再起動（stop + start）
+deno task dev-tool rebuild     # アセットだけリビルド（ブラウザ継続、HMR 対象外のモジュール用）
+
+# ブラウザ操作
+deno task dev-tool status                      # 接続確認 + タブ情報
+deno task dev-tool screenshot                  # XUL UI 含むフルウィンドウ スクリーンショット
+deno task dev-tool screenshot -c content       # コンテンツエリアのみ
+deno task dev-tool eval "gBrowser.tabs.length" # chrome コンテキストで JS 実行
+deno task dev-tool eval "document.title" -c content  # content コンテキストで JS 実行
+deno task dev-tool console --level error       # ブラウザコンソールのエラーログ取得
+deno task dev-tool console --filter noraneko   # テキストフィルタ
+deno task dev-tool dom "#nav-bar"              # XUL DOM 要素の検査
+deno task dev-tool navigate "about:config" -c content  # URL に遷移
+deno task dev-tool title                       # ページタイトル取得
+```
+
+**アーキテクチャ**:
+- `tools/src/browser_connector.ts` — Marionette TCP クライアント（バイトベースのプロトコルパーサー）
+- `tools/src/browser_launcher.ts` — `--marionette --remote-allow-system-access` フラグ付きで起動
+- ブラウザプロファイルに `remote.active-protocols: 0`、`marionette.enabled: true` を設定
+
+**注意事項**:
+- `rebuild` コマンドは `bridge/loader-features` のビルドを除外しています（Vite dev servers の HMR に任せる）。`loader-features` をフルリビルドするとシンボリンク経由で chrome コンテンツが上書きされ、Marionette セッションが壊れます
+- `stop` は dev プロファイル (`_dist/profile/test`) を使用するプロセスのみ kill します。通常版 Floorp には影響しません
+- スクリーンショットは `_dist/screenshot.png` に保存されます
+
+### 2. ブラウザコンソール（手動）
 
 Firefox の開発者ツールを活用：
 
 - `Ctrl+Shift+J` (Windows/Linux) または `Cmd+Option+J` (macOS): ブラウザコンソール
 - `Ctrl+Shift+I` (Windows/Linux) または `Cmd+Option+I` (macOS): ページコンソール
-
-### 2. リモートデバッグ
-
-```bash
-# Firefox をデバッグモードで起動
-deno task dev -- --remote-debugging-port=9222
-```
-
-その後、Chrome で `chrome://inspect` を開いて接続。
 
 ### 3. ログ出力
 

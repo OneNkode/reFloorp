@@ -179,7 +179,10 @@ export function savePrefsForProfile(): void {
 user_pref("devtools.debugger.prompt-connection", false);
 user_pref("security.disallow_privileged_https_script_loads", false);
 user_pref("security.allow_parent_unrestricted_js_loads", true);
-user_pref("remote.active-protocols", 1);
+user_pref("remote.active-protocols", 0);
+user_pref("marionette.enabled", true);
+user_pref("marionette.port", 2828);
+user_pref("devtools.chrome.enabled", true);
 user_pref("browser.newtabpage.enabled", true);
 `;
 

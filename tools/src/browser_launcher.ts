@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 
-import { BIN_PATH_EXE, PATHS } from "./defines.ts";
+import * as path from "@std/path";
+import { BIN_PATH_EXE, PATHS, PROJECT_ROOT } from "./defines.ts";
 import { ProcessUtils } from "./utils.ts";
+
+export const MARIONETTE_STATE_FILE = path.join(PROJECT_ROOT, "_dist", "marionette-port.txt");
 
 /**
  * Minimal port of tools/lib/browser_launcher.rb
@@ -28,6 +31,8 @@ export async function browserCommand(port: number): Promise<string[]> {
     BIN_PATH_EXE,
     "--profile",
     PATHS.profile_test,
+    "--marionette",
+    "--remote-allow-system-access",
   ];
 }
 
@@ -39,15 +44,20 @@ export async function run(port = 5180): Promise<void> {
   await ProcessUtils.runCommandWithLogging(
     cmd,
     (stream: "stdout" | "stderr", line: string) => {
-      if (stream === "stderr") {
-        const m = line.match(/^WebDriver BiDi listening on (ws:\/\/.*)/);
-        if (m) {
-          console.log("nora-{bbd11c51-3be9-4676-b912-ca4c0bdcab94}-webdriver");
-        }
+      const m = line.match(/Marionette\tINFO\tListening on port (\d+)/);
+      if (m) {
+        console.log("nora-{bbd11c51-3be9-4676-b912-ca4c0bdcab94}-webdriver");
+        Deno.writeTextFileSync(MARIONETTE_STATE_FILE, m[1]);
+        console.log(`[launcher] Marionette port saved to ${MARIONETTE_STATE_FILE}`);
       }
       printFirefoxLog(line.trim());
     },
   );
 
+  try {
+    Deno.removeSync(MARIONETTE_STATE_FILE);
+  } catch {
+    // ignore if already removed
+  }
   console.log("[launcher] Browser Closed");
 }
